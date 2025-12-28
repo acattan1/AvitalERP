@@ -1,0 +1,77 @@
+﻿@page "/testdb"
+@using AvitalERP.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext DbContext
+@inject IJSRuntime JSRuntime
+
+<h3>Diagnóstico Base de Datos</h3>
+
+<button @onclick="TestDatabase" class="btn btn-primary">Probar Conexión BD</button>
+<button @onclick="CreateTestClient" class="btn btn-success">Crear Cliente de Prueba</button>
+
+@if (result != null)
+{
+    <div class="alert alert-info mt-3">
+        @result
+    </div>
+}
+
+@code {
+    private string result;
+
+    private async Task TestDatabase()
+    {
+        try
+        {
+            // 1. Verificar si puede conectar
+            var canConnect = await DbContext.Database.CanConnectAsync();
+
+            if (canConnect)
+            {
+                // 2. Verificar si la tabla existe
+                var tableExists = await DbContext.Clientes.AnyAsync();
+
+                result = $"✅ Conexión OK. Tabla existe: {(tableExists ? "SÍ" : "NO, está vacía")}";
+            }
+            else
+            {
+                result = "❌ No se puede conectar a la base de datos";
+            }
+        }
+        catch (Exception ex)
+        {
+            result = $"❌ Error: {ex.Message}";
+        }
+    }
+
+    private async Task CreateTestClient()
+    {
+        try
+        {
+            var testClient = new Cliente
+            {
+                Rfc = "TEST12345678",
+                RazonSocial = "Cliente Prueba SA de CV",
+                Email = "test@test.com",
+                EsCliente = true,
+                FechaRegistro = DateTime.Now,
+                Origen = "Manual"
+            };
+
+            DbContext.Clientes.Add(testClient);
+            await DbContext.SaveChangesAsync();
+
+            result = "✅ Cliente de prueba creado exitosamente";
+
+            await JSRuntime.InvokeVoidAsync("alert", "Cliente creado. Recarga la página de clientes.");
+        }
+        catch (Exception ex)
+        {
+            result = $"❌ Error al crear cliente: {ex.Message}";
+            if (ex.InnerException != null)
+            {
+                result += $"\nDetalles: {ex.InnerException.Message}";
+            }
+        }
+    }
+}

@@ -1,0 +1,192 @@
+﻿@page "/cliente/nuevo"
+@page "/cliente/editar/{Id:int}"
+@using AvitalERP.Models
+@using AvitalERP.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<PageTitle>Avital ERP - @TituloPagina</PageTitle>
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="bi @IconoTitulo"></i> @TituloPagina</h4>
+                </div>
+                <div class="card-body">
+                    <EditForm Model="@ClienteActual" OnValidSubmit="@HandleValidSubmit" OnInvalidSubmit="@HandleInvalidSubmit">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary class="alert alert-danger" />
+
+                        <!-- RFC -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="rfc" class="form-label">RFC *</label>
+                                <InputText id="rfc" @bind-Value="ClienteActual.Rfc"
+                                           class="form-control"
+                                           placeholder="AAA010101AAA (12-13 caracteres)" />
+                                <ValidationMessage For="@(() => ClienteActual.Rfc)" class="text-danger" />
+                            </div>
+                        </div>
+
+                        <!-- Razón Social -->
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <label for="razonSocial" class="form-label">Razón Social *</label>
+                                <InputText id="razonSocial" @bind-Value="ClienteActual.RazonSocial"
+                                           class="form-control" placeholder="Empresa SA de CV" />
+                                <ValidationMessage For="@(() => ClienteActual.RazonSocial)" class="text-danger" />
+                            </div>
+                        </div>
+
+                        <!-- Email y Teléfono -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="email" class="form-label">Email</label>
+                                <InputText id="email" @bind-Value="ClienteActual.Email"
+                                           class="form-control" placeholder="contacto@empresa.com" />
+                                <ValidationMessage For="@(() => ClienteActual.Email)" class="text-danger" />
+                            </div>
+                            <div class="col-md-6">
+                                <label for="telefono" class="form-label">Teléfono</label>
+                                <InputText id="telefono" @bind-Value="ClienteActual.Telefono"
+                                           class="form-control" placeholder="55 1234 5678" />
+                                <ValidationMessage For="@(() => ClienteActual.Telefono)" class="text-danger" />
+                            </div>
+                        </div>
+
+                        <!-- Clasificación -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           id="esCliente" @bind="ClienteActual.EsCliente">
+                                    <label class="form-check-label" for="esCliente">
+                                        Es Cliente
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           id="esProveedor" @bind="ClienteActual.EsProveedor">
+                                    <label class="form-check-label" for="esProveedor">
+                                        Es Proveedor
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Botones -->
+                        <div class="d-flex justify-content-between mt-4">
+                            <button type="button" class="btn btn-outline-secondary" @onclick="Cancelar">
+                                Cancelar
+                            </button>
+                            <button type="submit" class="btn btn-primary" disabled="@IsSaving">
+                                @(IsSaving ? "Guardando..." : GuardarTexto)
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Cliente ClienteActual { get; set; } = new();
+    private bool EsEdicion => Id > 0;
+    private bool IsSaving = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (EsEdicion && Id > 0)
+        {
+            ClienteActual = await DbContext.Clientes.FindAsync(Id);
+            if (ClienteActual == null)
+            {
+                Navigation.NavigateTo("/clientes");
+            }
+        }
+        else
+        {
+            ClienteActual = new Cliente
+            {
+                EsCliente = true
+            };
+        }
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        IsSaving = true;
+
+        try
+        {
+            // Verificar RFC único
+            var existeRfc = await DbContext.Clientes
+                .AnyAsync(c => c.Rfc == ClienteActual.Rfc && c.Id != ClienteActual.Id);
+
+            if (existeRfc)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"El RFC {ClienteActual.Rfc} ya está registrado");
+                IsSaving = false;
+                return;
+            }
+
+            if (EsEdicion)
+            {
+                DbContext.Clientes.Update(ClienteActual);
+            }
+            else
+            {
+                ClienteActual.FechaRegistro = DateTime.Now;
+                DbContext.Clientes.Add(ClienteActual);
+            }
+
+            await DbContext.SaveChangesAsync();
+
+            await JSRuntime.InvokeVoidAsync("alert",
+                EsEdicion ? "Cliente actualizado correctamente" : "Cliente creado correctamente");
+
+            Navigation.NavigateTo("/clientes");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+
+    private void HandleInvalidSubmit()
+    {
+        // Los errores se muestran automáticamente con ValidationSummary
+    }
+
+    private string TituloPagina => EsEdicion ?
+        $"Editar Cliente: {ClienteActual.RazonSocial}" :
+        "Nuevo Cliente";
+
+    private string IconoTitulo => EsEdicion ? "bi-pencil" : "bi-plus";
+
+    private string GuardarTexto => EsEdicion ? "Actualizar" : "Guardar";
+
+    private void Cancelar()
+    {
+        Navigation.NavigateTo("/clientes");
+    }
+
+    public void Dispose()
+    {
+        // Limpieza si es necesaria
+    }
+}

@@ -1,0 +1,363 @@
+﻿@page "/clientes/importar-xml"
+@using AvitalERP.Models
+@using AvitalERP.Services
+@using AvitalERP.Data
+@using Microsoft.AspNetCore.Components
+@inject IXmlImportService XmlImportService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject AppDbContext DbContext
+
+<PageTitle>Importar XML - Avital ERP</PageTitle>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/">Inicio</a></li>
+                    <li class="breadcrumb-item"><a href="/clientes">Clientes</a></li>
+                    <li class="breadcrumb-item active">Importar XML</li>
+                </ol>
+            </nav>
+
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="card-title mb-0">
+                        <i class="bi bi-file-earmark-arrow-up"></i> Importar XML de Facturama
+                    </h3>
+                </div>
+
+                <div class="card-body">
+                    <!-- Paso 1: Configuración -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                           <div class="form-check">
+    <input class="form-check-input" type="radio" name="tipoImportacion"
+           id="importarClientes" @bind-value="esProveedor" @bind-value:event="onchange" value="false">
+    <label class="form-check-label" for="importarClientes">
+        <i class="bi bi-person-circle text-primary"></i> Importar como Clientes
+    </label>
+    <div class="form-text">Los RFCs serán tomados del Receptor en el XML</div>
+</div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="tipoImportacion"
+                                       id="importarProveedores" @bind="esProveedor" @bind:event="onchange" value="true">
+                                <label class="form-check-label" for="importarProveedores">
+                                    <i class="bi bi-truck text-success"></i> Importar como Proveedores
+                                </label>
+                                <div class="form-text">Los RFCs serán tomados del Emisor en el XML</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Paso 2: Zona de arrastrar y soltar -->
+                    <div class="border rounded p-4 text-center mb-4 drop-zone @(isDragOver ? "dragover" : "")"
+                         @ondragenter="() => isDragOver = true"
+                         @ondragleave="() => isDragOver = false"
+                         @ondragover="() => isDragOver = true"
+                         @ondrop="HandleDrop"
+                         id="dropZone">
+
+                        <div class="py-5">
+                            <i class="bi bi-cloud-arrow-up display-4 text-muted mb-3"></i>
+                            <h4>Arrastra y suelta archivos XML aquí</h4>
+                            <p class="text-muted">O haz clic para seleccionar archivos</p>
+                            <button class="btn btn-outline-primary mt-3" @onclick="AbrirSelectorArchivos">
+                                <i class="bi bi-folder2-open"></i> Seleccionar archivos XML
+                            </button>
+                            <input type="file" multiple accept=".xml" @ref="fileInput"
+                                   @onchange="HandleFileSelected" style="display: none;" />
+                        </div>
+                    </div>
+
+                    <!-- Archivos seleccionados -->
+                    @if (archivosSeleccionados.Any())
+                    {
+                        <div class="card mb-4 fade-in">
+                            <div class="card-header bg-light">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-files"></i> Archivos a importar (@archivosSeleccionados.Count)
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Nombre</th>
+                                                <th>Tamaño</th>
+                                                <th>Tipo</th>
+                                                <th>Acción</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var archivo in archivosSeleccionados)
+                                            {
+                                                <tr>
+                                                    <td>@archivo.Name</td>
+                                                    <td>@((archivo.Size / 1024).ToString("N0")) KB</td>
+                                                    <td><span class="badge bg-info">XML</span></td>
+                                                    <td>
+                                                        <button class="btn btn-sm btn-outline-danger"
+                                                                @onclick="() => RemoverArchivo(archivo)">
+                                                            <i class="bi bi-x-circle"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <button class="btn btn-outline-secondary" @onclick="LimpiarLista">
+                                            <i class="bi bi-trash"></i> Limpiar lista
+                                        </button>
+                                    </div>
+                                    <div>
+                                        <button class="btn btn-success" @onclick="ImportarArchivos"
+                                                disabled="@isImporting">
+                                            <i class="bi bi-upload"></i>
+                                            @if (isImporting)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                                <span>Importando...</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Importar (@archivosSeleccionados.Count)</span>
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Resultados de importación -->
+                    @if (resultadosImportacion.Any())
+                    {
+                        <div class="card fade-in">
+                            <div class="card-header bg-light">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-list-check"></i> Resultados de la importación
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-hover">
+                                        <thead>
+                                            <tr>
+                                                <th>RFC</th>
+                                                <th>Razón Social</th>
+                                                <th>Tipo</th>
+                                                <th>Estado</th>
+                                                <th>Mensaje</th>
+                                                <th>Acción</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var resultado in resultadosImportacion)
+                                            {
+                                                <tr class="@(resultado.Success ? "table-success" : "table-danger")">
+                                                    <td><strong>@resultado.Rfc</strong></td>
+                                                    <td>@resultado.RazonSocial</td>
+                                                    <td>
+                                                        <span class="badge @(resultado.Tipo == "Cliente" ? "badge-cliente" : "badge-proveedor")">
+                                                            @resultado.Tipo
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        @if (resultado.Success)
+                                                        {
+                                                            <i class="bi bi-check-circle-fill text-success" title="Éxito"></i>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i class="bi bi-x-circle-fill text-danger" title="Error"></i>
+                                                        }
+                                                    </td>
+                                                    <td>@resultado.Message</td>
+                                                    <td>
+                                                        @if (resultado.Success && resultado.ClienteImportado != null)
+                                                        {
+                                                            <a href="/cliente/editar/@resultado.ClienteImportado.Id"
+                                                               class="btn btn-sm btn-outline-primary">
+                                                                <i class="bi bi-eye"></i> Ver
+                                                            </a>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                @{
+                                    var exitosos = resultadosImportacion.Count(r => r.Success);
+                                    var fallidos = resultadosImportacion.Count(r => !r.Success);
+                                }
+
+                                <div class="alert @(fallidos > 0 ? "alert-warning" : "alert-success") mt-3">
+                                    <i class="bi bi-info-circle"></i>
+                                    <strong>Resumen:</strong>
+                                    @exitosos exitoso(s), @fallidos fallido(s)
+                                    @if (fallidos == 0)
+                                    {
+                                        <span class="ms-2"><i class="bi bi-check-circle"></i> ¡Importación completada con éxito!</span>
+                                    }
+                                </div>
+
+                                <div class="text-center">
+                                    <button class="btn btn-primary me-2" @onclick="NuevaImportacion">
+                                        <i class="bi bi-plus-circle"></i> Nueva importación
+                                    </button>
+                                    <a href="/clientes" class="btn btn-outline-secondary">
+                                        <i class="bi bi-arrow-left"></i> Volver a Clientes
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="card-footer text-muted">
+                    <small>
+                        <i class="bi bi-info-circle"></i> Formatos soportados: XML CFDI 4.0.
+                        Los archivos deben venir de Facturama o sistemas compatibles con SAT.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // Variables de estado
+    private bool esProveedor = false;
+    private bool isDragOver = false;
+    private bool isImporting = false;
+    private ElementReference fileInput;
+    private List<IBrowserFile> archivosSeleccionados = new();
+    private List<XmlImportResult> resultadosImportacion = new();
+
+    // Manejo de drag & drop simplificado
+    private async Task HandleDrop()
+    {
+        isDragOver = false;
+        // Por ahora, solo cambiamos el estado visual
+        // La selección real se hace con el input file
+        StateHasChanged();
+    }
+
+    // Abrir selector de archivos nativo
+    private async Task AbrirSelectorArchivos()
+    {
+        await JS.InvokeVoidAsync("clickElement", fileInput);
+    }
+
+    // Manejar archivos seleccionados
+    private void HandleFileSelected(Microsoft.AspNetCore.Components.Forms.InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles())
+        {
+            if (file.ContentType == "text/xml" || file.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            {
+                archivosSeleccionados.Add(file);
+            }
+        }
+        StateHasChanged();
+    }
+
+    // Remover archivo individual
+    private void RemoverArchivo(IBrowserFile archivo)
+    {
+        archivosSeleccionados.Remove(archivo);
+        StateHasChanged();
+    }
+
+    // Limpiar toda la lista
+    private void LimpiarLista()
+    {
+        archivosSeleccionados.Clear();
+        resultadosImportacion.Clear();
+        StateHasChanged();
+    }
+
+    // Importar archivos
+    private async Task ImportarArchivos()
+    {
+        if (!archivosSeleccionados.Any())
+        {
+            await MostrarAlerta("Error", "No hay archivos seleccionados", "error");
+            return;
+        }
+
+        isImporting = true;
+        resultadosImportacion.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var resultados = new List<XmlImportResult>();
+
+            foreach (var archivo in archivosSeleccionados)
+            {
+                try
+                {
+                    using var stream = archivo.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+                    var resultado = await XmlImportService.ImportarXmlAsync(stream, esProveedor);
+                    resultados.Add(resultado);
+                }
+                catch (Exception ex)
+                {
+                    resultados.Add(new XmlImportResult
+                    {
+                        Success = false,
+                        Message = $"Error procesando {archivo.Name}: {ex.Message}",
+                        Rfc = "N/A",
+                        RazonSocial = "Error",
+                        Tipo = esProveedor ? "Proveedor" : "Cliente"
+                    });
+                }
+            }
+
+            resultadosImportacion = resultados;
+
+            // Mostrar resumen
+            var exitosos = resultados.Count(r => r.Success);
+            var mensaje = exitosos == archivosSeleccionados.Count
+                ? "¡Todos los archivos importados con éxito!"
+                : $"{exitosos} de {archivosSeleccionados.Count} archivos importados correctamente.";
+
+            await MostrarAlerta("Importación completada", mensaje, exitosos == archivosSeleccionados.Count ? "success" : "warning");
+        }
+        catch (Exception ex)
+        {
+            await MostrarAlerta("Error", $"Error al importar: {ex.Message}", "error");
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    // Nueva importación
+    private void NuevaImportacion()
+    {
+        archivosSeleccionados.Clear();
+        resultadosImportacion.Clear();
+        StateHasChanged();
+    }
+
+    // Mostrar alerta con JavaScript
+    private async Task MostrarAlerta(string titulo, string mensaje, string tipo)
+    {
+        await JS.InvokeVoidAsync("alert", $"{titulo}\n{mensaje}");
+    }
+}

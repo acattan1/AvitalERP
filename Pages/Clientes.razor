@@ -1,0 +1,295 @@
+﻿@page "/clientes"
+@page "/maestros"
+@using AvitalERP.Models
+@using AvitalERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Avital ERP - Clientes y Proveedores</PageTitle>
+
+<h3>📋 Clientes y Proveedores</h3>
+
+<div class="row mb-3">
+    <div class="col-md-8">
+        <div class="input-group">
+            <input type="text" class="form-control" placeholder="Buscar por RFC, nombre o email..."
+                   @bind="searchText" @bind:event="oninput" />
+            <button class="btn btn-outline-secondary" type="button" @onclick="@(() => Buscar())">
+                <i class="bi bi-search"></i> Buscar
+            </button>
+        </div>
+    </div>
+    <div class="col-md-4 text-end">
+        <button class="btn btn-primary me-2" @onclick="@(() => NuevoCliente())">
+            <i class="bi bi-plus-circle"></i> Nuevo
+        </button>
+        <button class="btn btn-success" @onclick="@(() => ToggleImportar())">
+            <i class="bi bi-upload"></i> Importar XML
+        </button>
+    </div>
+</div>
+
+@if (MostrarImportar)
+{
+    <div class="alert alert-info">
+        <h5><i class="bi bi-file-earmark-x"></i> Importar desde Facturama</h5>
+        <p>Arrastra tus archivos XML aquí o haz clic para seleccionar.</p>
+        <InputFile OnChange="ProcesarArchivos" multiple accept=".xml" />
+        <button class="btn btn-sm btn-secondary mt-2" @onclick="ToggleImportar">
+            Cancelar
+        </button>
+    </div>
+}
+
+<div class="btn-group mb-3" role="group">
+    <button type="button" class="btn @(FiltroTipo == null ? "btn-primary" : "btn-outline-primary")"
+            @onclick="@(() => CambiarFiltro(null))">
+        Todos (@TotalRegistros)
+    </button>
+    <button type="button" class="btn @(FiltroTipo == "cliente" ? "btn-success" : "btn-outline-success")"
+            @onclick="@(() => CambiarFiltro("cliente"))">
+        <i class="bi bi-person"></i> Clientes (@ClientesCount)
+    </button>
+    <button type="button" class="btn @(FiltroTipo == "proveedor" ? "btn-warning" : "btn-outline-warning")"
+            @onclick="@(() => CambiarFiltro("proveedor"))">
+        <i class="bi bi-truck"></i> Proveedores (@ProveedoresCount)
+    </button>
+    <button type="button" class="btn @(FiltroTipo == "ambos" ? "btn-info" : "btn-outline-info")"
+            @onclick="@(() => CambiarFiltro("ambos"))">
+        <i class="bi bi-people"></i> Ambos (@AmbosCount)
+    </button>
+</div>
+
+@if (ClientesLista?.Any() == true)
+{
+    <div class="table-responsive">
+        <table class="table table-hover table-striped">
+            <thead class="table-dark">
+                <tr>
+                    <th>RFC</th>
+                    <th>Nombre / Razón Social</th>
+                    <th>Tipo</th>
+                    <th>Contacto</th>
+                    <th>Registro</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var cliente in ClientesLista)
+                {
+                    <tr>
+                        <td><strong>@cliente.Rfc</strong></td>
+                        <td>
+                            <div>@cliente.DisplayName</div>
+                            @if (!string.IsNullOrEmpty(cliente.NombreComercial))
+                            {
+                                <small class="text-muted">@cliente.RazonSocial</small>
+                            }
+                        </td>
+                        <td>
+                            <span class="badge @GetBadgeClass(cliente)">
+                                @cliente.TipoDisplay
+                            </span>
+                            @if (!string.IsNullOrEmpty(cliente.TipoProveedor) && cliente.EsProveedor)
+                            {
+                                <br />
+                    
+                                <small>@cliente.TipoProveedor</small>
+                            }
+                        </td>
+                        <td>
+                            @if (!string.IsNullOrEmpty(cliente.Email))
+                            {
+                                <div><i class="bi bi-envelope"></i> @cliente.Email</div>
+                            }
+                            @if (!string.IsNullOrEmpty(cliente.Telefono))
+                            {
+                                <div><i class="bi bi-telephone"></i> @cliente.Telefono</div>
+                            }
+                        </td>
+                        <td>@cliente.FechaRegistro.ToString("dd/MM/yyyy")</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="@(() => EditarCliente(cliente.Id))"
+                                    title="Editar">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-info" @onclick="@(() => VerDetalles(cliente.Id))"
+                                    title="Ver detalles">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="@(() => EliminarCliente(cliente))"
+                                    title="Eliminar">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <nav aria-label="Page navigation">
+        <ul class="pagination justify-content-center">
+            <li class="page-item @(PaginaActual == 1 ? "disabled" : "")">
+                <a class="page-link" href="#" @onclick="@(() => CambiarPagina(PaginaActual - 1))">Anterior</a>
+            </li>
+            @for (int i = 1; i <= TotalPaginas; i++)
+            {
+                <li class="page-item @(i == PaginaActual ? "active" : "")">
+                    <a class="page-link" href="#" @onclick="@(() => CambiarPagina(i))">@i</a>
+                </li>
+            }
+            <li class="page-item @(PaginaActual == TotalPaginas ? "disabled" : "")">
+                <a class="page-link" href="#" @onclick="@(() => CambiarPagina(PaginaActual + 1))">Siguiente</a>
+            </li>
+        </ul>
+    </nav>
+}
+else
+{
+    <div class="alert alert-warning text-center">
+        <i class="bi bi-exclamation-triangle fs-4"></i>
+        <h5>No hay clientes o proveedores registrados</h5>
+        <p>Comienza agregando manualmente o importando desde Facturama.</p>
+        <button class="btn btn-primary" @onclick="@(() => NuevoCliente())">
+            <i class="bi bi-plus-circle"></i> Agregar Primer Cliente
+        </button>
+    </div>
+}
+
+@code {
+    private List<Cliente> ClientesLista = new();
+    private string searchText = "";
+    private string? FiltroTipo = null;
+    private bool MostrarImportar = false;
+
+    private int PaginaActual = 1;
+    private const int ItemsPorPagina = 10;
+    private int TotalRegistros = 0;
+    private int TotalPaginas = 1;
+    private int ClientesCount = 0;
+    private int ProveedoresCount = 0;
+    private int AmbosCount = 0;
+
+    [Inject] private IJSRuntime JSRuntime { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarContadores();
+        await CargarClientes();
+    }
+
+    private async Task CargarContadores()
+    {
+        ClientesCount = await DbContext.Clientes.CountAsync(c => c.EsCliente && !c.EsProveedor);
+        ProveedoresCount = await DbContext.Clientes.CountAsync(c => c.EsProveedor && !c.EsCliente);
+        AmbosCount = await DbContext.Clientes.CountAsync(c => c.EsCliente && c.EsProveedor);
+        TotalRegistros = ClientesCount + ProveedoresCount + AmbosCount;
+    }
+
+    private async Task CargarClientes()
+    {
+        var query = DbContext.Clientes.AsQueryable();
+
+        if (FiltroTipo == "cliente")
+            query = query.Where(c => c.EsCliente && !c.EsProveedor);
+        else if (FiltroTipo == "proveedor")
+            query = query.Where(c => c.EsProveedor && !c.EsCliente);
+        else if (FiltroTipo == "ambos")
+            query = query.Where(c => c.EsCliente && c.EsProveedor);
+
+        if (!string.IsNullOrEmpty(searchText))
+        {
+            query = query.Where(c =>
+                c.Rfc.Contains(searchText) ||
+                c.RazonSocial.Contains(searchText) ||
+                c.NombreComercial.Contains(searchText) ||
+                c.Email.Contains(searchText) ||
+                c.Telefono.Contains(searchText));
+        }
+
+        TotalRegistros = await query.CountAsync();
+        TotalPaginas = (int)Math.Ceiling(TotalRegistros / (double)ItemsPorPagina);
+
+        ClientesLista = await query
+            .OrderByDescending(c => c.FechaRegistro)
+            .Skip((PaginaActual - 1) * ItemsPorPagina)
+            .Take(ItemsPorPagina)
+            .ToListAsync();
+
+        StateHasChanged();
+    }
+
+    private async Task Buscar()
+    {
+        await CargarClientes();
+    }
+
+    private async Task CambiarFiltro(string? tipo)
+    {
+        FiltroTipo = tipo;
+        PaginaActual = 1;
+        await CargarClientes();
+    }
+
+    private async Task CambiarPagina(int pagina)
+    {
+        if (pagina >= 1 && pagina <= TotalPaginas)
+        {
+            PaginaActual = pagina;
+            await CargarClientes();
+        }
+    }
+
+    private void ToggleImportar()
+    {
+        MostrarImportar = !MostrarImportar;
+    }
+
+    private string GetBadgeClass(Cliente cliente)
+    {
+        if (cliente.EsCliente && cliente.EsProveedor)
+            return "bg-info";
+        if (cliente.EsCliente)
+            return "bg-success";
+        if (cliente.EsProveedor)
+            return "bg-warning";
+        return "bg-secondary";
+    }
+
+    private void NuevoCliente()
+    {
+        Navigation.NavigateTo("/cliente/nuevo");
+    }
+
+    private void EditarCliente(int id)
+    {
+        Navigation.NavigateTo($"/cliente/editar/{id}");
+    }
+
+    private void VerDetalles(int id)
+    {
+        Navigation.NavigateTo($"/cliente/detalles/{id}");
+    }
+
+    private async Task EliminarCliente(Cliente cliente)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm",
+            $"¿Eliminar a {cliente.DisplayName} ({cliente.Rfc})? Esta acción no se puede deshacer."))
+        {
+            DbContext.Clientes.Remove(cliente);
+            await DbContext.SaveChangesAsync();
+            await CargarClientes();
+        }
+    }
+
+    private async Task ProcesarArchivos(InputFileChangeEventArgs e)
+    {
+        await JSRuntime.InvokeVoidAsync("alert", "Importador XML - En desarrollo");
+        MostrarImportar = false;
+        StateHasChanged();
+    }
+}
