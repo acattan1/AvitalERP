@@ -3,6 +3,8 @@
 @using AvitalERP.Services
 @using AvitalERP.Data
 @using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
 @inject IXmlImportService XmlImportService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -32,19 +34,21 @@
                     <!-- Paso 1: Configuración -->
                     <div class="row mb-4">
                         <div class="col-md-6">
-                           <div class="form-check">
-    <input class="form-check-input" type="radio" name="tipoImportacion"
-           id="importarClientes" @bind-value="esProveedor" @bind-value:event="onchange" value="false">
-    <label class="form-check-label" for="importarClientes">
-        <i class="bi bi-person-circle text-primary"></i> Importar como Clientes
-    </label>
-    <div class="form-text">Los RFCs serán tomados del Receptor en el XML</div>
-</div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="tipoImportacion"
+                                       id="importarClientes" checked="@(!esProveedor)"
+                                       @onchange="() => esProveedor = false">
+                                <label class="form-check-label" for="importarClientes">
+                                    <i class="bi bi-person-circle text-primary"></i> Importar como Clientes
+                                </label>
+                                <div class="form-text">Los RFCs serán tomados del Receptor en el XML</div>
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="tipoImportacion"
-                                       id="importarProveedores" @bind="esProveedor" @bind:event="onchange" value="true">
+                                       id="importarProveedores" checked="@(esProveedor)"
+                                       @onchange="() => esProveedor = true">
                                 <label class="form-check-label" for="importarProveedores">
                                     <i class="bi bi-truck text-success"></i> Importar como Proveedores
                                 </label>
@@ -58,7 +62,7 @@
                          @ondragenter="() => isDragOver = true"
                          @ondragleave="() => isDragOver = false"
                          @ondragover="() => isDragOver = true"
-                         @ondrop="HandleDrop"
+                         @ondrop="@(() => { isDragOver = false; })"
                          id="dropZone">
 
                         <div class="py-5">
@@ -68,8 +72,8 @@
                             <button class="btn btn-outline-primary mt-3" @onclick="AbrirSelectorArchivos">
                                 <i class="bi bi-folder2-open"></i> Seleccionar archivos XML
                             </button>
-                            <input type="file" multiple accept=".xml" @ref="fileInput"
-                                   @onchange="HandleFileSelected" style="display: none;" />
+                            <InputFile multiple accept=".xml" @ref="fileInput"
+                                       OnChange="@HandleFileSelected" style="display: none;" />
                         </div>
                     </div>
 
@@ -241,16 +245,31 @@
     private bool esProveedor = false;
     private bool isDragOver = false;
     private bool isImporting = false;
-    private ElementReference fileInput;
+    private Microsoft.AspNetCore.Components.Forms.InputFile fileInput;
     private List<IBrowserFile> archivosSeleccionados = new();
     private List<XmlImportResult> resultadosImportacion = new();
 
-    // Manejo de drag & drop simplificado
-    private async Task HandleDrop()
+
+
+    // Manejo de drag & drop
+    private void HandleDragEnter()
+    {
+        isDragOver = true;
+    }
+
+    private void HandleDragLeave()
     {
         isDragOver = false;
-        // Por ahora, solo cambiamos el estado visual
-        // La selección real se hace con el input file
+    }
+
+    private void HandleDragOver()
+    {
+        isDragOver = true;
+    }
+
+    private void HandleDrop()
+    {
+        isDragOver = false;
         StateHasChanged();
     }
 
@@ -261,7 +280,7 @@
     }
 
     // Manejar archivos seleccionados
-    private void HandleFileSelected(Microsoft.AspNetCore.Components.Forms.InputFileChangeEventArgs e)
+    private void HandleFileSelected(InputFileChangeEventArgs e)
     {
         foreach (var file in e.GetMultipleFiles())
         {
@@ -319,9 +338,9 @@
                     {
                         Success = false,
                         Message = $"Error procesando {archivo.Name}: {ex.Message}",
-                        Rfc = "N/A",
-                        RazonSocial = "Error",
-                        Tipo = esProveedor ? "Proveedor" : "Cliente"
+                        Rfc = "N/A",                    // ✅ Ya es string
+                        RazonSocial = "Error",          // ✅ Ya es string
+                        Tipo = esProveedor ? "Proveedor" : "Cliente" // ✅ Ya es string
                     });
                 }
             }

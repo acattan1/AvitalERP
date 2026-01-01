@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace AvitalERP.Pages
+namespace AvitalERP.Pages.Shared
 {
-    public class ImportarXmlModel : PageModel
+    public class _LoginPartialModel : PageModel
     {
         public void OnGet()
         {

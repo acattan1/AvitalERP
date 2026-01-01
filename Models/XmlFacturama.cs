@@ -57,13 +57,5 @@ namespace AvitalERP.Models
         public string DomicilioFiscalReceptor { get; set; } = "";
     }
 
-    public class XmlImportResult
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; } = "";
-        public Cliente? ClienteImportado { get; set; }
-        public string? Rfc { get; set; }
-        public string? RazonSocial { get; set; }
-        public string? Tipo { get; set; } // "Cliente" o "Proveedor"
-    }
+ 
 }

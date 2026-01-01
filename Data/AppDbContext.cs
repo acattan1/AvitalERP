@@ -1,9 +1,10 @@
-﻿using Microsoft.EntityFrameworkCore;
-using AvitalERP.Models;
+﻿using AvitalERP.Models;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 
 namespace AvitalERP.Data
 {
-    public class AppDbContext : DbContext
+    public class AppDbContext : IdentityDbContext<AppUser>
     {
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
@@ -11,21 +12,18 @@ namespace AvitalERP.Data
         }
 
         public DbSet<Cliente> Clientes { get; set; } = null!;
-        // Aquí agregaremos más DbSet después: Proveedores, Facturas, etc.
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            // Índice único para RFC (no puede haber RFC duplicados)
+            base.OnModelCreating(modelBuilder);
+
             modelBuilder.Entity<Cliente>()
                 .HasIndex(c => c.Rfc)
                 .IsUnique();
 
-            // Configuración por defecto
             modelBuilder.Entity<Cliente>()
                 .Property(c => c.FechaRegistro)
                 .HasDefaultValueSql("GETDATE()");
-
-            base.OnModelCreating(modelBuilder);
         }
     }
 }

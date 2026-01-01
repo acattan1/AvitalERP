@@ -11,8 +11,8 @@
 	<ItemGroup>
 		<!-- ACTUALIZAR TODAS LAS VERSIONES A 8.0: -->
 		<PackageReference Include="Blazor.Bootstrap" Version="2.0.0" />
-		<PackageReference Include="Microsoft.AspNetCore.Components" Version="8.0.0" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="8.0.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="8.0.0" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
 		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
 			<PrivateAssets>all</PrivateAssets>
