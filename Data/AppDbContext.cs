@@ -13,6 +13,10 @@ namespace AvitalERP.Data
 
         public DbSet<Cliente> Clientes { get; set; } = null!;
 
+        public DbSet<Proyecto> Proyectos { get; set; } = null!;
+        public DbSet<HubspotSyncState> HubspotSyncStates { get; set; } = null!;
+
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -24,6 +28,37 @@ namespace AvitalERP.Data
             modelBuilder.Entity<Cliente>()
                 .Property(c => c.FechaRegistro)
                 .HasDefaultValueSql("GETDATE()");
+
+
+            modelBuilder.Entity<Proyecto>()
+    .HasIndex(p => p.HubspotDealId)
+    .IsUnique();
+
+            modelBuilder.Entity<Proyecto>()
+                .HasIndex(p => p.Folio)
+                .IsUnique();
+
+            modelBuilder.Entity<Proyecto>()
+                .Property(p => p.Estado)
+                .HasConversion<string>()
+                .HasMaxLength(30);
+
+            // Si agregaste HubspotCompanyId en Cliente, agrega esto (ver siguiente punto)
+            modelBuilder.Entity<Cliente>()
+                .HasIndex(c => c.HubspotCompanyId)
+                .IsUnique()
+                .HasFilter("[HubspotCompanyId] <> ''");
+
+
+
+            modelBuilder.Entity<Cliente>()
+
+                    .HasIndex(c => c.HubspotCompanyId)
+    .IsUnique()
+    .HasFilter("[HubspotCompanyId] <> ''");
+
+
+
         }
     }
 }

@@ -51,6 +51,9 @@ namespace AvitalERP.Models
         [StringLength(500)]
         public string Notas { get; set; } = "";
 
+        public string HubspotCompanyId { get; set; } = "";
+
+   
         // Propiedades calculadas
         [NotMapped]
         public string DisplayName =>
