@@ -1,13 +1,38 @@
 ﻿@page "/"
 @using AvitalERP.Data
 @using Microsoft.EntityFrameworkCore
+@using AvitalERP.Services.Hubspot
 @inject AppDbContext Db
+@inject HubspotPollingService HubspotSync
 
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 
 <PageTitle>Avital ERP - Dashboard</PageTitle>
 
 <h3>📊 Dashboard</h3>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="SyncHubspot" disabled="@SyncRunning">
+        @if (SyncRunning)
+        {
+            <span>Sincronizando...</span>
+        }
+        else
+        {
+            <span>🔄 Sincronizar HubSpot ahora</span>
+        }
+    </button>
+
+    <a class="btn btn-outline-secondary ms-2" href="/clientes">Ir a Clientes</a>
+    <a class="btn btn-outline-secondary ms-2" href="/proyectos">Ir a Proyectos</a>
+
+    @if (!string.IsNullOrWhiteSpace(SyncMessage))
+    {
+        <div class="mt-2 alert @SyncAlertClass" role="alert">
+            @SyncMessage
+        </div>
+    }
+</div>
 
 <div class="row g-3">
     <div class="col-md-3">
@@ -16,34 +41,18 @@
             <div class="fs-3">@Clientes</div>
         </div>
     </div>
-
     <div class="col-md-3">
         <div class="card p-3">
             <div class="fw-bold">Proveedores</div>
             <div class="fs-3">@Proveedores</div>
         </div>
     </div>
-
     <div class="col-md-3">
         <div class="card p-3">
             <div class="fw-bold">Ambos</div>
             <div class="fs-3">@Ambos</div>
         </div>
     </div>
-
-    <div class="col-md-3">
-        <div class="card p-3">
-            <div class="fw-bold">Mis tareas</div>
-            <div class="text-muted">(pendiente módulo)</div>
-        </div>
-    </div>
-</div>
-
-<hr />
-
-<div class="mt-3">
-    <a class="btn btn-outline-primary" href="/clientes">Ir a Clientes/Proveedores</a>
-    <a class="btn btn-outline-secondary ms-2" href="/reportes">Ir a Reportes</a>
 </div>
 
 @code {
@@ -51,10 +60,43 @@
     private int Proveedores;
     private int Ambos;
 
+    private bool SyncRunning;
+    private string? SyncMessage;
+    private string SyncAlertClass = "alert-info";
+
     protected override async Task OnInitializedAsync()
+    {
+        await ReloadCounters();
+    }
+
+    private async Task ReloadCounters()
     {
         Clientes = await Db.Clientes.CountAsync(c => c.EsCliente && !c.EsProveedor);
         Proveedores = await Db.Clientes.CountAsync(c => c.EsProveedor && !c.EsCliente);
         Ambos = await Db.Clientes.CountAsync(c => c.EsCliente && c.EsProveedor);
+    }
+
+    private async Task SyncHubspot()
+    {
+        SyncRunning = true;
+        SyncMessage = null;
+
+        try
+        {
+            var (processed, skipped) = await HubspotSync.RunOnceAsync();
+            SyncAlertClass = "alert-success";
+            SyncMessage = $"✅ Sync OK. Nuevos: {processed}, ya existentes: {skipped}";
+
+            await ReloadCounters();
+        }
+        catch (Exception ex)
+        {
+            SyncAlertClass = "alert-danger";
+            SyncMessage = $"❌ Sync falló: {ex.Message}";
+        }
+        finally
+        {
+            SyncRunning = false;
+        }
     }
 }

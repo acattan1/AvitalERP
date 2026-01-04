@@ -1,0 +1,190 @@
+﻿@page "/proyectos/{Id:int}"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@using AvitalERP.Data
+@using AvitalERP.Models
+@using Microsoft.EntityFrameworkCore
+
+@inject AppDbContext Db
+@inject NavigationManager Nav
+
+<PageTitle>Proyecto</PageTitle>
+
+@if (_p == null)
+{
+    <div class="alert alert-danger">Proyecto no encontrado.</div>
+}
+else
+{
+    <h3>🧾 @_p.Folio</h3>
+    <div class="text-muted">@_p.NombreProyecto</div>
+
+    <hr />
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <div class="card p-3">
+                <div class="fw-bold mb-2">Empresa (HubSpot)</div>
+                <div>@_p.HubspotCompanyName</div>
+                <div class="text-muted small">@_p.HubspotCompanyId</div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card p-3">
+                <div class="fw-bold mb-2">Cliente (ERP)</div>
+
+                <select class="form-select" @bind="_clienteId">
+                    <option value="">-- Pendiente --</option>
+                    @foreach (var c in _clientes)
+                    {
+                        <option value="@c.Id">@c.DisplayName (@c.Rfc)</option>
+                    }
+                </select>
+
+                <button class="btn btn-primary mt-2" @onclick="SaveLink">Guardar vínculo</button>
+            </div>
+        </div>
+    </div>
+
+    <hr />
+
+    <div class="card p-3">
+        <div class="fw-bold mb-2">Importes (editable)</div>
+
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Subtotal</label>
+                <input class="form-control" type="number" step="0.01" @bind="_subtotal" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Aplica IVA</label>
+                <select class="form-select" @bind="_aplicaIva">
+                    <option value="true">Sí</option>
+                    <option value="false">No</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Tasa IVA</label>
+                <input class="form-control" type="number" step="0.0001" @bind="_tasaIva" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">IVA</label>
+                <input class="form-control" value="@_iva.ToString("N2")" disabled />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Aplica Ret ISR</label>
+                <select class="form-select" @bind="_aplicaRetIsr">
+                    <option value="true">Sí</option>
+                    <option value="false">No</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Tasa Ret ISR</label>
+                <input class="form-control" type="number" step="0.0001" @bind="_tasaRetIsr" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Ret ISR</label>
+                <input class="form-control" value="@_ret.ToString("N2")" disabled />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Total</label>
+                <input class="form-control fw-bold" value="@_total.ToString("N2")" disabled />
+            </div>
+        </div>
+
+        <button class="btn btn-success mt-3" @onclick="SaveImportes">Guardar importes</button>
+        <a class="btn btn-outline-secondary mt-3 ms-2" href="/proyectos">Volver</a>
+
+        @if (!string.IsNullOrWhiteSpace(_msg))
+        {
+            <div class="alert @(_ok ? "alert-success" : "alert-danger") mt-3">@_msg</div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Proyecto? _p;
+    private List<Cliente> _clientes = new();
+
+    private int? _clienteId;
+
+    private decimal _subtotal;
+    private bool _aplicaIva;
+    private decimal _tasaIva;
+    private bool _aplicaRetIsr;
+    private decimal _tasaRetIsr;
+
+    private decimal _iva => _aplicaIva ? Math.Round(_subtotal * _tasaIva, 2) : 0m;
+    private decimal _ret => _aplicaRetIsr ? Math.Round(_subtotal * _tasaRetIsr, 2) : 0m;
+    private decimal _total => _subtotal + _iva - _ret;
+
+    private bool _ok;
+    private string _msg = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _clientes = await Db.Clientes.OrderBy(c => c.NombreComercial).ThenBy(c => c.RazonSocial).ToListAsync();
+
+        _p = await Db.Proyectos.FirstOrDefaultAsync(p => p.Id == Id);
+        if (_p == null) return;
+
+        _clienteId = _p.ClienteId;
+
+        _subtotal = _p.Subtotal;
+        _aplicaIva = _p.AplicaIVA;
+        _tasaIva = _p.TasaIVA;
+        _aplicaRetIsr = _p.AplicaRetencionISR;
+        _tasaRetIsr = _p.TasaRetencionISR;
+    }
+
+    private async Task SaveLink()
+    {
+        if (_p == null) return;
+
+        _p.ClienteId = _clienteId;
+
+        if (!string.IsNullOrWhiteSpace(_p.HubspotCompanyId))
+        {
+            var link = await Db.HubspotCompanyLinks.FirstOrDefaultAsync(x => x.HubspotCompanyId == _p.HubspotCompanyId);
+            if (link != null)
+            {
+                link.ClienteId = _clienteId;
+                link.UpdatedAt = DateTime.Now;
+            }
+        }
+
+        await Db.SaveChangesAsync();
+        _ok = true;
+        _msg = "Vínculo guardado.";
+    }
+
+    private async Task SaveImportes()
+    {
+        if (_p == null) return;
+
+        _p.Subtotal = _subtotal;
+        _p.AplicaIVA = _aplicaIva;
+        _p.TasaIVA = _tasaIva;
+        _p.IvaImporte = _iva;
+
+        _p.AplicaRetencionISR = _aplicaRetIsr;
+        _p.TasaRetencionISR = _tasaRetIsr;
+        _p.RetencionISRImporte = _ret;
+
+        _p.Total = _total;
+
+        await Db.SaveChangesAsync();
+        _ok = true;
+        _msg = "Importes guardados.";
+    }
+}

@@ -4,61 +4,36 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AvitalERP.Data
 {
+    // IMPORTANTE: Identity debe usar TU AppUser aquí
     public class AppDbContext : IdentityDbContext<AppUser>
     {
-        public AppDbContext(DbContextOptions<AppDbContext> options)
-            : base(options)
+        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
         {
         }
 
-        public DbSet<Cliente> Clientes { get; set; } = null!;
+        // ===== DbSets del ERP =====
+        public DbSet<Cliente> Clientes => Set<Cliente>();
+        public DbSet<Proyecto> Proyectos => Set<Proyecto>();
 
-        public DbSet<Proyecto> Proyectos { get; set; } = null!;
-        public DbSet<HubspotSyncState> HubspotSyncStates { get; set; } = null!;
+        // HubSpot
+        public DbSet<HubspotSyncState> HubspotSyncStates => Set<HubspotSyncState>();
+        public DbSet<HubspotCompanyLink> HubspotCompanyLinks => Set<HubspotCompanyLink>();
 
-
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        protected override void OnModelCreating(ModelBuilder builder)
         {
-            base.OnModelCreating(modelBuilder);
+            base.OnModelCreating(builder);
 
-            modelBuilder.Entity<Cliente>()
-                .HasIndex(c => c.Rfc)
+            // Proyecto: HubspotDealId único (idempotencia)
+            builder.Entity<Proyecto>()
+                .HasIndex(p => p.HubspotDealId)
                 .IsUnique();
 
-            modelBuilder.Entity<Cliente>()
-                .Property(c => c.FechaRegistro)
-                .HasDefaultValueSql("GETDATE()");
-
-
-            modelBuilder.Entity<Proyecto>()
-    .HasIndex(p => p.HubspotDealId)
-    .IsUnique();
-
-            modelBuilder.Entity<Proyecto>()
-                .HasIndex(p => p.Folio)
-                .IsUnique();
-
-            modelBuilder.Entity<Proyecto>()
-                .Property(p => p.Estado)
-                .HasConversion<string>()
-                .HasMaxLength(30);
-
-            // Si agregaste HubspotCompanyId en Cliente, agrega esto (ver siguiente punto)
-            modelBuilder.Entity<Cliente>()
-                .HasIndex(c => c.HubspotCompanyId)
-                .IsUnique()
-                .HasFilter("[HubspotCompanyId] <> ''");
-
-
-
-            modelBuilder.Entity<Cliente>()
-
-                    .HasIndex(c => c.HubspotCompanyId)
-    .IsUnique()
-    .HasFilter("[HubspotCompanyId] <> ''");
-
-
-
+            // Relación Proyecto -> Cliente (opcional)
+            builder.Entity<Proyecto>()
+                .HasOne(p => p.Cliente)
+                .WithMany()
+                .HasForeignKey(p => p.ClienteId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
     }
 }

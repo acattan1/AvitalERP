@@ -1,0 +1,181 @@
+﻿@page "/proyectos"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@using AvitalERP.Data
+@using AvitalERP.Models
+@using Microsoft.EntityFrameworkCore
+
+@inject AppDbContext Db
+@inject NavigationManager Nav
+
+<PageTitle>Proyectos</PageTitle>
+
+<h3>📁 Proyectos</h3>
+
+<div class="mb-3 d-flex gap-2">
+    <button class="btn btn-primary" @onclick="SyncNow" disabled="@_syncing">
+        🔄 Sincronizar HubSpot ahora
+    </button>
+    <a class="btn btn-outline-secondary" href="/">Volver al Dashboard</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_syncMsg))
+{
+    <div class="alert @(_syncOk ? "alert-success" : "alert-danger")">@_syncMsg</div>
+}
+
+@if (_proyectos.Count == 0)
+{
+    <div class="alert alert-info">No hay proyectos todavía. Presiona “Sincronizar HubSpot ahora”.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>Folio</th>
+                    <th>Proyecto</th>
+                    <th>Empresa (HubSpot)</th>
+                    <th>Cliente (ERP)</th>
+                    <th class="text-end">Subtotal</th>
+                    <th class="text-end">IVA</th>
+                    <th class="text-end">Ret ISR</th>
+                    <th class="text-end">Total</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in _proyectos)
+                {
+                    <tr>
+                        <td>@p.Folio</td>
+                        <td>@p.NombreProyecto</td>
+                        <td>
+                            <div class="fw-bold">@p.HubspotCompanyName</div>
+                            <div class="text-muted small">@p.HubspotCompanyId</div>
+                        </td>
+                        <td>
+                            @if (p.ClienteId.HasValue)
+                            {
+                                <span class="badge bg-success">Ligado</span>
+                                <div class="small text-muted">@p.Cliente?.DisplayName</div>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning text-dark">Pendiente</span>
+                                <div class="mt-1 d-flex gap-2">
+                                    <select class="form-select form-select-sm" style="max-width:320px"
+                                            @bind="_selectedClienteId[p.Id]">
+                                        <option value="">-- seleccionar cliente --</option>
+                                        @foreach (var c in _clientes)
+                                        {
+                                            <option value="@c.Id">@c.DisplayName (@c.Rfc)</option>
+                                        }
+                                    </select>
+                                    <button class="btn btn-sm btn-outline-primary"
+                                            @onclick="() => LinkCliente(p.Id)"
+                                            disabled="@(!_selectedClienteId.ContainsKey(p.Id) || !_selectedClienteId[p.Id].HasValue)">
+                                        Ligar
+                                    </button>
+                                </div>
+                            }
+                        </td>
+
+                        <td class="text-end">@p.Subtotal.ToString("N2")</td>
+                        <td class="text-end">@p.IvaImporte.ToString("N2")</td>
+                        <td class="text-end">@p.RetencionISRImporte.ToString("N2")</td>
+                        <td class="text-end fw-bold">@p.Total.ToString("N2")</td>
+                        <td>@p.Estado</td>
+                        <td>
+                            <a class="btn btn-sm btn-outline-secondary" href="@($"/proyectos/{p.Id}")">Editar</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<Proyecto> _proyectos = new();
+    private List<Cliente> _clientes = new();
+    private Dictionary<int, int?> _selectedClienteId = new();
+
+    private bool _syncing = false;
+    private bool _syncOk = false;
+    private string _syncMsg = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _clientes = await Db.Clientes
+            .OrderBy(c => c.NombreComercial)
+            .ThenBy(c => c.RazonSocial)
+            .ToListAsync();
+
+        _proyectos = await Db.Proyectos
+            .Include(p => p.Cliente)
+            .OrderByDescending(p => p.Id)
+            .ToListAsync();
+
+        foreach (var p in _proyectos)
+            if (!_selectedClienteId.ContainsKey(p.Id))
+                _selectedClienteId[p.Id] = null;
+    }
+
+    private async Task SyncNow()
+    {
+        _syncing = true;
+        _syncMsg = "";
+        try
+        {
+            using var http = new HttpClient { BaseAddress = new Uri(Nav.BaseUri) };
+            var resp = await http.PostAsync("api/hubspot/sync/run-once", content: null);
+            resp.EnsureSuccessStatusCode();
+
+            _syncOk = true;
+            _syncMsg = "Sync OK. Revisa la lista.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _syncOk = false;
+            _syncMsg = $"Sync falló: {ex.Message}";
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    private async Task LinkCliente(int proyectoId)
+    {
+        if (!_selectedClienteId.TryGetValue(proyectoId, out var clienteId) || !clienteId.HasValue)
+            return;
+
+        var proyecto = await Db.Proyectos.FirstOrDefaultAsync(p => p.Id == proyectoId);
+        if (proyecto == null) return;
+
+        proyecto.ClienteId = clienteId.Value;
+
+        // Si tenemos HubspotCompanyId, también guardamos la parejita en HubspotCompanyLinks
+        if (!string.IsNullOrWhiteSpace(proyecto.HubspotCompanyId))
+        {
+            var link = await Db.HubspotCompanyLinks.FirstOrDefaultAsync(x => x.HubspotCompanyId == proyecto.HubspotCompanyId);
+            if (link != null)
+            {
+                link.ClienteId = clienteId.Value;
+                link.UpdatedAt = DateTime.Now;
+            }
+        }
+
+        await Db.SaveChangesAsync();
+        await LoadAsync();
+    }
+}

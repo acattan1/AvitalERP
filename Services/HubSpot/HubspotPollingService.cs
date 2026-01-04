@@ -1,5 +1,6 @@
 ﻿using AvitalERP.Data;
 using AvitalERP.Models;
+using AvitalERP.Models.Hubspot;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 
@@ -21,18 +22,21 @@ namespace AvitalERP.Services.Hubspot
             // 1) Resolver ClosedWonStageId automáticamente (por label en español)
             var (_, closedWonStageId) = await _hubspot.GetPipelineAndClosedWonStageIdsAsync(ct);
 
-            // 2) Tomamos last_check desde SQL (si no existe, usamos últimos 30 días para bootstrap)
-            var state = await _db.Set<HubspotSyncState>().FirstOrDefaultAsync(s => s.Id == 1, ct);
+            // 2) Estado de sync
+            var state = await _db.HubspotSyncStates.OrderBy(x => x.Id).FirstOrDefaultAsync(ct);
             if (state == null)
             {
-                state = new HubspotSyncState { Id = 1, LastClosedDateProcessedUtc = DateTime.UtcNow.AddDays(-30) };
-                _db.Add(state);
+                state = new HubspotSyncState
+                {
+                    LastClosedDateProcessedUtc = DateTime.UtcNow.AddDays(-30)
+                };
+                _db.HubspotSyncStates.Add(state);
                 await _db.SaveChangesAsync(ct);
             }
 
+            // 3) Buscar deals ClosedWon cerrados después del marcador
             var deals = await _hubspot.SearchClosedWonDealsAsync(closedWonStageId, state.LastClosedDateProcessedUtc, ct);
 
-            // Orden por closedate asc para avanzar marcador correctamente
             var ordered = deals
                 .Select(d => new { Deal = d, ClosedUtc = TryGetClosedDateUtc(d) })
                 .Where(x => x.ClosedUtc.HasValue)
@@ -49,7 +53,7 @@ namespace AvitalERP.Services.Hubspot
                 var deal = item.Deal;
                 var dealId = deal.Id;
 
-                // Idempotencia: si ya existe proyecto con ese dealId, skip
+                // Idempotencia
                 var exists = await _db.Proyectos.AnyAsync(p => p.HubspotDealId == dealId, ct);
                 if (exists)
                 {
@@ -58,29 +62,37 @@ namespace AvitalERP.Services.Hubspot
                     continue;
                 }
 
-                // Obtener empresa asociada
+                // Company asociada (siempre hay, pero lo manejamos defensivo)
+                string? hubspotCompanyId = null;
+                string? hubspotCompanyName = null;
+
                 var companyId = await _hubspot.GetCompanyIdForDealAsync(dealId, ct);
-                if (companyId is null)
+                if (companyId.HasValue)
                 {
-                    // No bloqueamos: creamos cliente placeholder con nombre del deal
-                    var cliente = await GetOrCreatePlaceholderClienteAsync(deal, ct);
-                    await CreateProyectoAsync(cliente.Id, deal, item.ClosedUtc!.Value, ct);
-                    processed++;
-                    maxClosed = Max(maxClosed, item.ClosedUtc);
-                    continue;
+                    hubspotCompanyId = companyId.Value.ToString();
+
+                    var company = await _hubspot.GetCompanyAsync(companyId.Value, ct);
+                    hubspotCompanyName = company?.Properties.TryGetValue("name", out var nm) == true ? (nm ?? "") : "";
+                    hubspotCompanyName = string.IsNullOrWhiteSpace(hubspotCompanyName) ? null : hubspotCompanyName.Trim();
                 }
 
-                var company = await _hubspot.GetCompanyAsync(companyId.Value, ct);
-                var companyName = company?.Properties.TryGetValue("name", out var nm) == true ? (nm ?? "") : "";
+                // Intentar ligar con Cliente existente por HubspotCompanyId (SIN CREAR)
+                int? clienteId = null;
+                if (!string.IsNullOrWhiteSpace(hubspotCompanyId))
+                {
+                    clienteId = await _db.Clientes
+                        .Where(c => c.HubspotCompanyId == hubspotCompanyId)
+                        .Select(c => (int?)c.Id)
+                        .FirstOrDefaultAsync(ct);
+                }
 
-                var clienteReal = await GetOrCreateClienteByHubspotCompanyIdAsync(companyId.Value.ToString(), companyName, ct);
+                await CreateProyectoAsync(clienteId, hubspotCompanyId, hubspotCompanyName, deal, ct);
 
-                await CreateProyectoAsync(clienteReal.Id, deal, item.ClosedUtc!.Value, ct);
                 processed++;
                 maxClosed = Max(maxClosed, item.ClosedUtc);
             }
 
-            // Avanzar marcador
+            // 4) Avanzar marcador
             if (maxClosed.HasValue && maxClosed.Value > state.LastClosedDateProcessedUtc)
             {
                 state.LastClosedDateProcessedUtc = maxClosed.Value;
@@ -90,80 +102,32 @@ namespace AvitalERP.Services.Hubspot
             return (processed, skipped);
         }
 
-        private static DateTime? TryGetClosedDateUtc(AvitalERP.Models.Hubspot.HubspotDeal deal)
+        private static DateTime? TryGetClosedDateUtc(HubspotDeal deal)
         {
             if (!deal.Properties.TryGetValue("closedate", out var v) || string.IsNullOrWhiteSpace(v))
                 return null;
 
-            // HubSpot closedate suele venir en ms epoch (string)
             if (long.TryParse(v, out var ms))
-            {
                 return DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
-            }
 
-            // fallback por si viniera ISO
             if (DateTimeOffset.TryParse(v, out var dto))
                 return dto.UtcDateTime;
 
             return null;
         }
 
-        private async Task<Cliente> GetOrCreateClienteByHubspotCompanyIdAsync(string hubspotCompanyId, string companyName, CancellationToken ct)
-        {
-            var cliente = await _db.Clientes.FirstOrDefaultAsync(c => c.HubspotCompanyId == hubspotCompanyId, ct);
-            if (cliente != null) return cliente;
-
-            // Cliente rápido + pendiente de razón social
-            cliente = new Cliente
-            {
-                HubspotCompanyId = hubspotCompanyId,
-                NombreComercial = string.IsNullOrWhiteSpace(companyName) ? "(Sin nombre)" : companyName.Trim(),
-                RazonSocial = "", // pendiente
-                Email = "",
-                Telefono = "",
-                EsCliente = true,
-                EsProveedor = false,
-                Origen = "HubSpot",
-                FechaRegistro = DateTime.Now
-            };
-
-            _db.Clientes.Add(cliente);
-            await _db.SaveChangesAsync(ct);
-            return cliente;
-        }
-
-        private async Task<Cliente> GetOrCreatePlaceholderClienteAsync(AvitalERP.Models.Hubspot.HubspotDeal deal, CancellationToken ct)
-        {
-            var dealName = deal.Properties.TryGetValue("dealname", out var n) ? (n ?? "") : "";
-            dealName = string.IsNullOrWhiteSpace(dealName) ? "(Deal sin nombre)" : dealName.Trim();
-
-            // Placeholder: HubspotCompanyId vacío => para revisar después
-            var cliente = new Cliente
-            {
-                HubspotCompanyId = "",
-                NombreComercial = dealName,
-                RazonSocial = "",
-                Email = "",
-                Telefono = "",
-                EsCliente = true,
-                EsProveedor = false,
-                Origen = "HubSpot",
-                FechaRegistro = DateTime.Now
-            };
-
-            _db.Clientes.Add(cliente);
-            await _db.SaveChangesAsync(ct);
-            return cliente;
-        }
-
-        private async Task CreateProyectoAsync(int clienteId, AvitalERP.Models.Hubspot.HubspotDeal deal, DateTime closedUtc, CancellationToken ct)
+        private async Task CreateProyectoAsync(
+            int? clienteId,
+            string? hubspotCompanyId,
+            string? hubspotCompanyName,
+            HubspotDeal deal,
+            CancellationToken ct)
         {
             var year = DateTime.Now.Year;
             var prefix = $"AVT-{year}-";
 
-            // Folio: dentro de transacción serializable (simple y seguro)
+            // Folio: transacción simple
             await using var tx = await _db.Database.BeginTransactionAsync(ct);
-
 
             var lastFolio = await _db.Proyectos
                 .Where(p => p.Folio.StartsWith(prefix))
@@ -184,9 +148,21 @@ namespace AvitalERP.Services.Hubspot
             var dealName = deal.Properties.TryGetValue("dealname", out var nm) ? (nm ?? "") : "";
             if (string.IsNullOrWhiteSpace(dealName)) dealName = "(Sin nombre)";
 
-            var amount = 0m;
+            // HubSpot "amount" lo tomamos como Subtotal inicial (luego lo editas en ERP)
+            var subtotal = 0m;
             if (deal.Properties.TryGetValue("amount", out var am) && !string.IsNullOrWhiteSpace(am))
-                decimal.TryParse(am, out amount);
+                decimal.TryParse(am, out subtotal);
+
+            var aplicaIva = true;
+            var tasaIva = 0.16m;
+
+            var ivaImporte = aplicaIva ? Math.Round(subtotal * tasaIva, 2) : 0m;
+
+            var aplicaRetIsr = false;
+            var tasaRetIsr = 0m;
+            var retIsrImporte = aplicaRetIsr ? Math.Round(subtotal * tasaRetIsr, 2) : 0m;
+
+            var total = Math.Round(subtotal + ivaImporte - retIsrImporte, 2);
 
             var payload = JsonSerializer.Serialize(deal);
 
@@ -194,9 +170,25 @@ namespace AvitalERP.Services.Hubspot
             {
                 Folio = folio,
                 HubspotDealId = deal.Id,
-                ClienteId = clienteId,
+
+                HubspotCompanyId = hubspotCompanyId,
+                HubspotCompanyName = hubspotCompanyName,
+
+                ClienteId = clienteId, // puede ser null
+
                 NombreProyecto = dealName.Trim(),
-                Monto = amount,
+
+                Subtotal = subtotal,
+                AplicaIVA = aplicaIva,
+                TasaIVA = tasaIva,
+                IvaImporte = ivaImporte,
+
+                AplicaRetencionISR = aplicaRetIsr,
+                TasaRetencionISR = tasaRetIsr,
+                RetencionISRImporte = retIsrImporte,
+
+                Total = total,
+
                 Moneda = "MXN",
                 Estado = ProyectoEstado.Nuevo,
                 FechaCreacion = DateTime.Now,
@@ -215,12 +207,4 @@ namespace AvitalERP.Services.Hubspot
             return a.Value >= b.Value ? a : b;
         }
     }
-
-    // Estado de sincronización (tabla simple)
-    public class HubspotSyncState
-    {
-        public int Id { get; set; } = 1;
-        public DateTime LastClosedDateProcessedUtc { get; set; }
-    }
 }
-

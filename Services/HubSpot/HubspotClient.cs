@@ -30,7 +30,6 @@ namespace AvitalERP.Services.Hubspot
             var data = JsonSerializer.Deserialize<HubspotPipelinesResponse>(json, _jsonOpts)
                        ?? new HubspotPipelinesResponse();
 
-            // Pipeline por label; si no encuentra, toma el primero (pipeline único)
             var pipeline = data.Results.FirstOrDefault(p => string.Equals(p.Label, _opt.PipelineLabel, StringComparison.OrdinalIgnoreCase))
                         ?? data.Results.FirstOrDefault();
 
@@ -44,16 +43,17 @@ namespace AvitalERP.Services.Hubspot
             return (pipeline.Id, stage.Id);
         }
 
+        // ✅ Correcto para HubSpot v3: SEARCH (POST)
         public async Task<List<HubspotDeal>> SearchClosedWonDealsAsync(string closedWonStageId, DateTime? closedAfterUtc, CancellationToken ct = default)
         {
             var results = new List<HubspotDeal>();
             string? after = null;
 
-            // HubSpot trabaja con milisegundos epoch para fechas en filtros
+            // HubSpot usa epoch ms para fechas
             string? closedAfterMs = null;
             if (closedAfterUtc.HasValue)
             {
-                var ms = new DateTimeOffset(closedAfterUtc.Value).ToUnixTimeMilliseconds();
+                var ms = new DateTimeOffset(DateTime.SpecifyKind(closedAfterUtc.Value, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
                 closedAfterMs = ms.ToString();
             }
 
@@ -61,7 +61,7 @@ namespace AvitalERP.Services.Hubspot
             {
                 var req = new HubspotSearchRequest
                 {
-                    Limit = _opt.PageSize,
+                    Limit = _opt.PageSize <= 0 ? 50 : _opt.PageSize,
                     After = after,
                     Properties = new List<string> { "dealname", "dealstage", "amount", "closedate" },
                     FilterGroups = new List<HubspotFilterGroup>
@@ -87,14 +87,18 @@ namespace AvitalERP.Services.Hubspot
                 }
 
                 var body = JsonSerializer.Serialize(req, _jsonOpts);
-                var resp = await _http.PostAsync("crm/v3/objects/deals/search", new StringContent(body, Encoding.UTF8, "application/json"), ct);
+                var resp = await _http.PostAsync(
+                    "crm/v3/objects/deals/search",
+                    new StringContent(body, Encoding.UTF8, "application/json"),
+                    ct);
+
                 resp.EnsureSuccessStatusCode();
 
                 var json = await resp.Content.ReadAsStringAsync(ct);
-                var data = JsonSerializer.Deserialize<HubspotDealSearchResponse>(json, _jsonOpts) ?? new HubspotDealSearchResponse();
+                var data = JsonSerializer.Deserialize<HubspotDealSearchResponse>(json, _jsonOpts)
+                           ?? new HubspotDealSearchResponse();
 
                 results.AddRange(data.Results);
-
                 after = data.Paging?.Next?.After;
             }
             while (!string.IsNullOrWhiteSpace(after));
@@ -102,22 +106,37 @@ namespace AvitalERP.Services.Hubspot
             return results;
         }
 
+        // ✅ FIX: endpoint de associations (v3) con ruta explícita companies/company
         public async Task<long?> GetCompanyIdForDealAsync(string dealId, CancellationToken ct = default)
         {
-            // Associations: /crm/v3/objects/deals/{dealId}/associations/companies
-            var resp = await _http.GetAsync($"crm/v3/objects/deals/{dealId}/associations/companies", ct);
+            // Forma robusta para asociaciones en v3:
+            // /crm/v3/objects/deals/{dealId}/associations/companies/company
+            // (companies = object type plural; company = target object type singular)
+            var url = $"crm/v3/objects/deals/{dealId}/associations/companies/company";
+
+            var resp = await _http.GetAsync(url, ct);
+
+            // Si no hay empresa asociada o la ruta no existe en tu portal, NO rompemos el sync.
+            // Devolvemos null y el servicio puede crear proyecto con cliente "placeholder".
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return null;
+
             resp.EnsureSuccessStatusCode();
 
             var json = await resp.Content.ReadAsStringAsync(ct);
-            var data = JsonSerializer.Deserialize<HubspotAssociationsResponse>(json, _jsonOpts) ?? new HubspotAssociationsResponse();
+            var data = JsonSerializer.Deserialize<HubspotAssociationsResponse>(json, _jsonOpts)
+                       ?? new HubspotAssociationsResponse();
 
-            // tomamos la primera empresa asociada
             return data.Results.FirstOrDefault()?.ToObjectId;
         }
 
         public async Task<HubspotCompanyResponse?> GetCompanyAsync(long companyId, CancellationToken ct = default)
         {
             var resp = await _http.GetAsync($"crm/v3/objects/companies/{companyId}?properties=name,phone,domain,website", ct);
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return null;
+
             resp.EnsureSuccessStatusCode();
 
             var json = await resp.Content.ReadAsStringAsync(ct);
