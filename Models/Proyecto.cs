@@ -1,18 +1,21 @@
-﻿using System;
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AvitalERP.Models
 {
-    public enum ProyectoEstado
+    /// <summary>
+    /// Estados de proyecto (guardados como string en BD para compatibilidad con datos existentes).
+    /// </summary>
+    public static class ProyectoEstados
     {
-        Nuevo = 0,
-        Planeacion = 1,
-        Ejecucion = 2,
-        Entrega = 3,
-        Facturado = 4,
-        Cobrado = 5,
-        Cerrado = 6
+        public const string Nuevo = "Nuevo";
+        public const string Planeacion = "Planeacion";
+        public const string Ejecucion = "Ejecucion";
+        public const string Entrega = "Entrega";
+        public const string Facturado = "Facturado";
+        public const string Cobrado = "Cobrado";
+        public const string Cerrado = "Cerrado";
     }
 
     public class Proyecto
@@ -31,10 +34,10 @@ namespace AvitalERP.Models
         public Cliente? Cliente { get; set; }
 
         [StringLength(50)]
-        public string? HubspotCompanyId { get; set; }
+        public string HubspotCompanyId { get; set; } = string.Empty;
 
         [StringLength(200)]
-        public string? HubspotCompanyName { get; set; }
+        public string HubspotCompanyName { get; set; } = string.Empty;
 
         [Required]
         [StringLength(200)]
@@ -45,7 +48,7 @@ namespace AvitalERP.Models
 
         public bool AplicaIVA { get; set; } = true;
 
-        [Column(TypeName = "decimal(9,6)")]
+        [Column(TypeName = "decimal(9,4)")]
         public decimal TasaIVA { get; set; } = 0.16m;
 
         [Column(TypeName = "decimal(18,2)")]
@@ -53,8 +56,8 @@ namespace AvitalERP.Models
 
         public bool AplicaRetencionISR { get; set; } = false;
 
-        [Column(TypeName = "decimal(9,6)")]
-        public decimal TasaRetencionISR { get; set; }
+        [Column(TypeName = "decimal(9,4)")]
+        public decimal TasaRetencionISR { get; set; } = 0.0125m;
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal RetencionISRImporte { get; set; }
@@ -65,9 +68,20 @@ namespace AvitalERP.Models
         [StringLength(10)]
         public string Moneda { get; set; } = "MXN";
 
-        public ProyectoEstado Estado { get; set; } = ProyectoEstado.Nuevo;
+        [Required]
+        [StringLength(30)]
+        public string Estado { get; set; } = ProyectoEstados.Nuevo;
 
         public DateTime FechaCreacion { get; set; } = DateTime.Now;
+
+        // ===== Cierre / OneDrive =====
+        [StringLength(200)]
+        public string? CerradoPor { get; set; }
+
+        public DateTime? FechaCierre { get; set; }
+
+        [StringLength(1000)]
+        public string? OneDriveFolderUrl { get; set; }
 
         public string JsonPayloadOriginal { get; set; } = string.Empty;
     }

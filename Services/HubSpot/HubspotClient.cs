@@ -105,35 +105,56 @@ namespace AvitalERP.Services.Hubspot
 
             return results;
         }
-
-        // ✅ FIX: endpoint de associations (v3) con ruta explícita companies/company
         public async Task<long?> GetCompanyIdForDealAsync(string dealId, CancellationToken ct = default)
         {
-            // Forma robusta para asociaciones en v3:
-            // /crm/v3/objects/deals/{dealId}/associations/companies/company
-            // (companies = object type plural; company = target object type singular)
-            var url = $"crm/v3/objects/deals/{dealId}/associations/companies/company";
+            // v3 correcto:
+            // /crm/v3/objects/deals/{dealId}/associations/companies
+            var url = $"crm/v3/objects/deals/{dealId}/associations/companies";
 
             var resp = await _http.GetAsync(url, ct);
-
-            // Si no hay empresa asociada o la ruta no existe en tu portal, NO rompemos el sync.
-            // Devolvemos null y el servicio puede crear proyecto con cliente "placeholder".
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return null;
 
             resp.EnsureSuccessStatusCode();
 
             var json = await resp.Content.ReadAsStringAsync(ct);
-            var data = JsonSerializer.Deserialize<HubspotAssociationsResponse>(json, _jsonOpts)
-                       ?? new HubspotAssociationsResponse();
 
-            return data.Results.FirstOrDefault()?.ToObjectId;
+            // v3: { results:[ { id:"123" } ] }
+            // v4: { results:[ { toObjectId:123 } ] }
+            using var doc = JsonDocument.Parse(json);
+
+            if (!doc.RootElement.TryGetProperty("results", out var results) ||
+                results.ValueKind != JsonValueKind.Array ||
+                results.GetArrayLength() == 0)
+                return null;
+
+            var first = results[0];
+
+            if (first.TryGetProperty("id", out var idProp))
+            {
+                var idStr = idProp.ValueKind == JsonValueKind.String ? idProp.GetString() : idProp.ToString();
+                if (long.TryParse(idStr, out var idLong))
+                    return idLong;
+            }
+
+            if (first.TryGetProperty("toObjectId", out var toObjProp))
+            {
+                if (toObjProp.ValueKind == JsonValueKind.Number && toObjProp.TryGetInt64(out var idLong))
+                    return idLong;
+
+                var idStr = toObjProp.ValueKind == JsonValueKind.String ? toObjProp.GetString() : toObjProp.ToString();
+                if (long.TryParse(idStr, out var idLong2))
+                    return idLong2;
+            }
+
+            return null;
         }
-
         public async Task<HubspotCompanyResponse?> GetCompanyAsync(long companyId, CancellationToken ct = default)
         {
-            var resp = await _http.GetAsync($"crm/v3/objects/companies/{companyId}?properties=name,phone,domain,website", ct);
+            // Traemos name + algunos campos típicos (puedes ampliar después)
+            var url = $"crm/v3/objects/companies/{companyId}?properties=name,domain,website,phone";
 
+            var resp = await _http.GetAsync(url, ct);
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return null;
 
@@ -142,5 +163,8 @@ namespace AvitalERP.Services.Hubspot
             var json = await resp.Content.ReadAsStringAsync(ct);
             return JsonSerializer.Deserialize<HubspotCompanyResponse>(json, _jsonOpts);
         }
+
+
     }
 }
+

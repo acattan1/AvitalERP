@@ -1,12 +1,15 @@
-﻿@page "/proyectos/{Id:int}"
+@page "/proyectos/{Id:int}"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 
 @using AvitalERP.Data
 @using AvitalERP.Models
+@using AvitalERP.Services
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Forms
 
 @inject AppDbContext Db
 @inject NavigationManager Nav
+@inject IWebHostEnvironment Env
 
 <PageTitle>Proyecto</PageTitle>
 
@@ -49,59 +52,265 @@ else
 
     <hr />
 
-    <div class="card p-3">
-        <div class="fw-bold mb-2">Importes (editable)</div>
 
-        <div class="row g-3">
-            <div class="col-md-3">
-                <label class="form-label">Subtotal</label>
-                <input class="form-control" type="number" step="0.01" @bind="_subtotal" />
-            </div>
+    var tabImportes = "importes";
+    var tabOperacion = "operacion";
 
-            <div class="col-md-3">
-                <label class="form-label">Aplica IVA</label>
-                <select class="form-select" @bind="_aplicaIva">
-                    <option value="true">Sí</option>
-                    <option value="false">No</option>
-                </select>
-            </div>
 
-            <div class="col-md-3">
-                <label class="form-label">Tasa IVA</label>
-                <input class="form-control" type="number" step="0.0001" @bind="_tasaIva" />
-            </div>
+<ul class="nav nav-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link @(_tab == tabImportes ? "active" : "")"
+                type="button"
+                @onclick="() => SetTab(tabImportes)">
+            Importes
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link @(_tab == tabOperacion ? "active" : "")"
+                type="button"
+                @onclick="() => SetTab(tabOperacion)">
+            Operación (Checklist + Compras)
+        </button>
+    </li>
+</ul>
 
-            <div class="col-md-3">
-                <label class="form-label">IVA</label>
-                <input class="form-control" value="@_iva.ToString("N2")" disabled />
-            </div>
 
-            <div class="col-md-3">
-                <label class="form-label">Aplica Ret ISR</label>
-                <select class="form-select" @bind="_aplicaRetIsr">
-                    <option value="true">Sí</option>
-                    <option value="false">No</option>
-                </select>
-            </div>
 
-            <div class="col-md-3">
-                <label class="form-label">Tasa Ret ISR</label>
-                <input class="form-control" type="number" step="0.0001" @bind="_tasaRetIsr" />
-            </div>
 
-            <div class="col-md-3">
-                <label class="form-label">Ret ISR</label>
-                <input class="form-control" value="@_ret.ToString("N2")" disabled />
-            </div>
 
-            <div class="col-md-3">
-                <label class="form-label">Total</label>
-                <input class="form-control fw-bold" value="@_total.ToString("N2")" disabled />
+
+
+    <div class="border border-top-0 rounded-bottom p-3">
+        @if (_tab == "importes")
+        {
+            <div class="card p-3">
+                <div class="fw-bold mb-2">Importes (editable)</div>
+
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Subtotal</label>
+                        <input class="form-control" type="number" step="0.01" @bind="_subtotal" @bind:event="oninput" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Aplica IVA</label>
+                        <select class="form-select" @bind="_aplicaIva" @bind:after="OnAplicaIvaChanged">
+                            <option value="true">Sí</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Tasa IVA (%)</label>
+                        <input class="form-control" type="number" step="0.01" @bind="_tasaIvaPct" @bind:event="oninput" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">IVA</label>
+                        <input class="form-control" value="@IvaImporte.ToString("N2")" disabled />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Aplica Ret ISR</label>
+                        <select class="form-select" @bind="_aplicaRetIsr" @bind:after="OnAplicaRetIsrChanged">
+                            <option value="true">Sí</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Tasa Ret ISR (%)</label>
+                        <input class="form-control" type="number" step="0.01" @bind="_tasaRetIsrPct" @bind:event="oninput" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Ret ISR</label>
+                        <input class="form-control" value="@RetIsrImporte.ToString("N2")" disabled />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Total</label>
+                        <input class="form-control fw-bold" value="@Total.ToString("N2")" disabled />
+                    </div>
+                </div>
+
+                <button class="btn btn-success mt-3" @onclick="SaveImportes">Guardar importes</button>
             </div>
+        }
+        else if (_tab == "operacion")
+        {
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <div class="card p-3 h-100">
+                        <div class="fw-bold mb-2">Checklist (por tipo de proyecto)</div>
+
+                        <div class="small text-muted mb-2">Puedes asignar uno o varios tipos. Luego generas el checklist automático.</div>
+
+                        <div class="mb-2">
+                            @foreach (var t in _tipos)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" checked="@_tiposSeleccionados.Contains(t.Id)" @onchange="(e)=>ToggleTipo(t.Id, e)" id="tipo_@t.Id" />
+                                    <label class="form-check-label" for="tipo_@t.Id">@t.Nombre</label>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-outline-primary" @onclick="SaveTipos">Guardar tipos</button>
+                            <button class="btn btn-primary" @onclick="GenerarChecklist">Generar checklist</button>
+                        </div>
+
+                        <hr />
+
+                        <div class="fw-bold mb-2">Pasos</div>
+
+                        @if (_pasos.Count == 0)
+                        {
+                            <div class="alert alert-info">Aún no hay pasos. Asigna tipos y genera el checklist.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:70px">OK</th>
+                                            <th>Paso</th>
+                                            <th style="width:220px">Técnico</th>
+                                            <th style="width:180px">Evidencia</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var p in _pasos.OrderBy(x => x.Orden).ThenBy(x => x.Id))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <input class="form-check-input" type="checkbox" checked="@(p.Estado == ProyectoPasoEstados.Hecho)" @onchange="(e)=>TogglePasoHecho(p, e)" />
+                                                </td>
+                                                <td>
+                                                    <div class="fw-semibold">@p.Nombre</div>
+                                                    @if (!string.IsNullOrWhiteSpace(p.Descripcion))
+                                                    {
+                                                        <div class="text-muted small">@p.Descripcion</div>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <select class="form-select form-select-sm" value="@p.TecnicoId" @onchange="(e)=>CambiarTecnico(p, e)">
+                                                        <option value="">-- Sin asignar --</option>
+                                                        @foreach (var tec in _tecnicos)
+                                                        {
+                                                            <option value="@tec.Id">@tec.Nombre</option>
+                                                        }
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <InputFile OnChange="(e)=>UploadEvidencia(p, e)" />
+                                                    @if (_evidencias.TryGetValue(p.Id, out var evs) && evs.Count > 0)
+                                                    {
+                                                        <div class="small mt-1">
+                                                            @foreach (var ev in evs.Take(3))
+                                                            {
+                                                                <div><a href="@ev.FilePath" target="_blank">@System.IO.Path.GetFileName(ev.FilePath)</a></div>
+                                                            }
+                                                            @if (evs.Count > 3)
+                                                            {
+                                                                <div class="text-muted">+@((evs.Count - 3)) más</div>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(_msgChecklist))
+                        {
+                            <div class="alert @(_okChecklist ? "alert-success" : "alert-danger") mt-2">@_msgChecklist</div>
+                        }
+                    </div>
+                </div>
+
+                <div class="col-lg-6">
+                    <div class="card p-3 h-100">
+                        <div class="fw-bold mb-2">Compras (XML/PDF) + OneDrive</div>
+                        <div class="small text-muted mb-2">Sube XML/PDF aquí (se guarda en el servidor) y opcionalmente guarda la liga de OneDrive del proyecto.</div>
+
+                        <label class="form-label">OneDrive Folder URL</label>
+                        <input class="form-control" @bind="_oneDriveUrl" @bind:event="oninput" placeholder="https://..." />
+                        <button class="btn btn-outline-primary mt-2" @onclick="SaveOneDrive">Guardar liga</button>
+
+                        <hr />
+
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-8">
+                                <label class="form-label">Subir XML (CFDI) / PDF</label>
+                                <InputFile OnChange="UploadCompra" multiple />
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-primary w-100" @onclick="ReloadCompras">Refrescar lista</button>
+                            </div>
+                        </div>
+
+                        <hr />
+
+                        <div class="fw-bold mb-2">Documentos</div>
+                        @if (_cfdis.Count == 0)
+                        {
+                            <div class="alert alert-info">No hay documentos cargados.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>UUID / Emisor</th>
+                                            <th style="width:140px">Total</th>
+                                            <th style="width:160px">Archivos</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var d in _cfdis.OrderByDescending(x => x.UploadedAt))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">@(!string.IsNullOrWhiteSpace(d.UUID) ? d.UUID : "(sin UUID)")</div>
+                                                    <div class="text-muted small">@d.EmisorRfc @d.EmisorNombre</div>
+                                                </td>
+                                                <td class="text-end">@d.Total.ToString("N2")</td>
+                                                <td>
+                                                    @if (!string.IsNullOrWhiteSpace(d.StoredPathXml))
+                                                    {
+                                                        <div><a href="@d.StoredPathXml" target="_blank">XML</a></div>
+                                                    }
+                                                    @if (!string.IsNullOrWhiteSpace(d.StoredPathPdf))
+                                                    {
+                                                        <div><a href="@d.StoredPathPdf" target="_blank">PDF</a></div>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(_msgCompras))
+                        {
+                            <div class="alert @(_okCompras ? "alert-success" : "alert-danger") mt-2">@_msgCompras</div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="mt-3 d-flex gap-2">
+            <a class="btn btn-outline-secondary" href="/proyectos">Volver</a>
         </div>
-
-        <button class="btn btn-success mt-3" @onclick="SaveImportes">Guardar importes</button>
-        <a class="btn btn-outline-secondary mt-3 ms-2" href="/proyectos">Volver</a>
 
         @if (!string.IsNullOrWhiteSpace(_msg))
         {
@@ -115,25 +324,50 @@ else
 
     private Proyecto? _p;
     private List<Cliente> _clientes = new();
-
     private int? _clienteId;
 
+    // Tabs
+    private string _tab = "importes";
+    private void SetTab(string tab) { _tab = tab; _ = LoadOperacionesAsync(); _ = ReloadCompras(); }
+
+    // ===== Importes =====
     private decimal _subtotal;
     private bool _aplicaIva;
-    private decimal _tasaIva;
+    private decimal _tasaIvaPct;        // 16
     private bool _aplicaRetIsr;
-    private decimal _tasaRetIsr;
+    private decimal _tasaRetIsrPct;     // 1.25
 
-    private decimal _iva => _aplicaIva ? Math.Round(_subtotal * _tasaIva, 2) : 0m;
-    private decimal _ret => _aplicaRetIsr ? Math.Round(_subtotal * _tasaRetIsr, 2) : 0m;
-    private decimal _total => _subtotal + _iva - _ret;
+    private decimal IvaImporte => _aplicaIva ? Math.Round(_subtotal * (_tasaIvaPct / 100m), 2) : 0m;
+    private decimal RetIsrImporte => _aplicaRetIsr ? Math.Round(_subtotal * (_tasaRetIsrPct / 100m), 2) : 0m;
+    private decimal Total => _subtotal + IvaImporte - RetIsrImporte;
 
+    // ===== Operación: tipos/pasos/tecnicos/evidencia =====
+    private List<Tecnico> _tecnicos = new();
+    private List<ProyectoTipo> _tipos = new();
+    private HashSet<int> _tiposSeleccionados = new();
+    private List<ProyectoPaso> _pasos = new();
+    private Dictionary<int, List<ProyectoPasoEvidencia>> _evidencias = new();
+
+    private bool _okChecklist;
+    private string _msgChecklist = "";
+
+    // ===== Compras (CFDI) =====
+    private string? _oneDriveUrl;
+    private List<CfdiDocumento> _cfdis = new();
+
+    private bool _okCompras;
+    private string _msgCompras = "";
+
+    // Mensaje general
     private bool _ok;
     private string _msg = "";
 
     protected override async Task OnInitializedAsync()
     {
-        _clientes = await Db.Clientes.OrderBy(c => c.NombreComercial).ThenBy(c => c.RazonSocial).ToListAsync();
+        _clientes = await Db.Clientes
+            .OrderBy(c => c.NombreComercial)
+            .ThenBy(c => c.RazonSocial)
+            .ToListAsync();
 
         _p = await Db.Proyectos.FirstOrDefaultAsync(p => p.Id == Id);
         if (_p == null) return;
@@ -142,9 +376,33 @@ else
 
         _subtotal = _p.Subtotal;
         _aplicaIva = _p.AplicaIVA;
-        _tasaIva = _p.TasaIVA;
         _aplicaRetIsr = _p.AplicaRetencionISR;
-        _tasaRetIsr = _p.TasaRetencionISR;
+
+        _tasaIvaPct = (_p.TasaIVA > 0) ? (_p.TasaIVA * 100m) : 0m;
+        _tasaRetIsrPct = (_p.TasaRetencionISR > 0) ? (_p.TasaRetencionISR * 100m) : 0m;
+
+        if (_aplicaIva && _tasaIvaPct == 0) _tasaIvaPct = 16m;
+        if (_aplicaRetIsr && _tasaRetIsrPct == 0) _tasaRetIsrPct = 1.25m;
+
+        _oneDriveUrl = _p?.OneDriveFolderUrl ?? "";
+
+
+        await LoadOperacionesAsync();
+        await ReloadCompras();
+    }
+
+    private void OnAplicaIvaChanged()
+    {
+        // @bind ya actualizó _aplicaIva. Aquí sólo ponemos default si aplica.
+        if (_aplicaIva && _tasaIvaPct == 0) _tasaIvaPct = 16m;
+        if (!_aplicaIva) _tasaIvaPct = 0m;
+    }
+
+    private void OnAplicaRetIsrChanged()
+    {
+        // @bind ya actualizó _aplicaRetIsr. Aquí sólo ponemos default si aplica.
+        if (_aplicaRetIsr && _tasaRetIsrPct == 0) _tasaRetIsrPct = 1.25m;
+        if (!_aplicaRetIsr) _tasaRetIsrPct = 0m;
     }
 
     private async Task SaveLink()
@@ -155,7 +413,9 @@ else
 
         if (!string.IsNullOrWhiteSpace(_p.HubspotCompanyId))
         {
-            var link = await Db.HubspotCompanyLinks.FirstOrDefaultAsync(x => x.HubspotCompanyId == _p.HubspotCompanyId);
+            var link = await Db.HubspotCompanyLinks
+                .FirstOrDefaultAsync(x => x.HubspotCompanyId == _p.HubspotCompanyId);
+
             if (link != null)
             {
                 link.ClienteId = _clienteId;
@@ -172,19 +432,357 @@ else
     {
         if (_p == null) return;
 
+        if (!_aplicaIva) _tasaIvaPct = 0m;
+        if (!_aplicaRetIsr) _tasaRetIsrPct = 0m;
+
         _p.Subtotal = _subtotal;
+
         _p.AplicaIVA = _aplicaIva;
-        _p.TasaIVA = _tasaIva;
-        _p.IvaImporte = _iva;
+        _p.TasaIVA = _tasaIvaPct / 100m;
+        _p.IvaImporte = IvaImporte;
 
         _p.AplicaRetencionISR = _aplicaRetIsr;
-        _p.TasaRetencionISR = _tasaRetIsr;
-        _p.RetencionISRImporte = _ret;
+        _p.TasaRetencionISR = _tasaRetIsrPct / 100m;
+        _p.RetencionISRImporte = RetIsrImporte;
 
-        _p.Total = _total;
+        _p.Total = Total;
 
         await Db.SaveChangesAsync();
         _ok = true;
         _msg = "Importes guardados.";
+    }
+
+    // ===== Operación =====
+    private async Task LoadOperacionesAsync()
+    {
+        if (_p == null) return;
+
+        try
+        {
+            _tecnicos = await Db.Tecnicos.Where(t => t.Activo).OrderBy(t => t.Nombre).ToListAsync();
+            _tipos = await Db.ProyectoTipos.Where(t => t.Activo).OrderBy(t => t.Nombre).ToListAsync();
+
+            var asignados = await Db.ProyectoTiposAsignados
+                .Where(x => x.ProyectoId == _p.Id)
+                .Select(x => x.ProyectoTipoId)
+                .ToListAsync();
+
+            _tiposSeleccionados = asignados.ToHashSet();
+
+            _pasos = await Db.ProyectoPasos
+                .Where(x => x.ProyectoId == _p.Id)
+                .AsNoTracking()
+                .ToListAsync();
+
+            var pasoIds = _pasos.Select(x => x.Id).ToList();
+            var evs = await Db.ProyectoPasoEvidencias
+                .Where(e => pasoIds.Contains(e.ProyectoPasoId))
+                .AsNoTracking()
+                .ToListAsync();
+
+            _evidencias = evs
+                .GroupBy(e => e.ProyectoPasoId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.UploadedAt).ToList());
+        }
+        catch
+        {
+            // Si aún no existe el esquema, el bootstrap lo crea al arranque.
+        }
+    }
+
+    private void ToggleTipo(int tipoId, ChangeEventArgs e)
+    {
+        var isChecked = e.Value is bool b && b;
+        if (isChecked) _tiposSeleccionados.Add(tipoId);
+        else _tiposSeleccionados.Remove(tipoId);
+    }
+
+    private async Task SaveTipos()
+    {
+        if (_p == null) return;
+
+        try
+        {
+            var actuales = await Db.ProyectoTiposAsignados.Where(x => x.ProyectoId == _p.Id).ToListAsync();
+            Db.ProyectoTiposAsignados.RemoveRange(actuales);
+
+            foreach (var tipoId in _tiposSeleccionados)
+            {
+                Db.ProyectoTiposAsignados.Add(new ProyectoTipoAsignado
+                {
+                    ProyectoId = _p.Id,
+                    ProyectoTipoId = tipoId
+                });
+            }
+
+            await Db.SaveChangesAsync();
+            _okChecklist = true;
+            _msgChecklist = "Tipos guardados.";
+        }
+        catch (Exception ex)
+        {
+            _okChecklist = false;
+            _msgChecklist = "Error guardando tipos: " + ex.Message;
+        }
+
+        await LoadOperacionesAsync();
+    }
+
+    private async Task GenerarChecklist()
+    {
+        if (_p == null) return;
+
+        try
+        {
+            // Plantillas por tipo seleccionado
+            var plantillas = await Db.ProyectoTipoPasoPlantillas
+                .Where(x => _tiposSeleccionados.Contains(x.ProyectoTipoId) && x.Activo)
+                .OrderBy(x => x.ProyectoTipoId)
+                .ThenBy(x => x.Orden)
+                .AsNoTracking()
+                .ToListAsync();
+
+            // Evitar duplicados por (TipoId + Orden + Nombre)
+            var existentes = await Db.ProyectoPasos
+                .Where(x => x.ProyectoId == _p.Id)
+                .Select(x => new { x.ProyectoTipoId, x.Orden, x.Nombre })
+                .AsNoTracking()
+                .ToListAsync();
+
+            var existeSet = existentes
+                .Select(x => (x.ProyectoTipoId ?? 0, x.Orden, x.Nombre))
+                .ToHashSet();
+
+            var toAdd = new List<ProyectoPaso>();
+            foreach (var pl in plantillas)
+            {
+                var key = (pl.ProyectoTipoId, pl.Orden, pl.Nombre);
+                if (existeSet.Contains(key)) continue;
+
+                toAdd.Add(new ProyectoPaso
+                {
+                    ProyectoId = _p.Id,
+                    ProyectoTipoId = pl.ProyectoTipoId,
+                    Orden = pl.Orden,
+                    Nombre = pl.Nombre,
+                    Descripcion = pl.Descripcion,
+                    Estado = ProyectoPasoEstados.Pendiente
+                });
+            }
+
+            if (toAdd.Count > 0)
+            {
+                Db.ProyectoPasos.AddRange(toAdd);
+                await Db.SaveChangesAsync();
+            }
+
+            _okChecklist = true;
+            _msgChecklist = toAdd.Count == 0
+                ? "No había pasos nuevos por generar (ya estaban)."
+                : $"Checklist generado. Pasos nuevos: {toAdd.Count}";
+        }
+        catch (Exception ex)
+        {
+            _okChecklist = false;
+            _msgChecklist = "Error generando checklist: " + ex.Message;
+        }
+
+        await LoadOperacionesAsync();
+    }
+
+    private async Task TogglePasoHecho(ProyectoPaso paso, ChangeEventArgs e)
+    {
+        try
+        {
+            var isChecked = e.Value is bool b && b;
+            var p = await Db.ProyectoPasos.FirstOrDefaultAsync(x => x.Id == paso.Id);
+            if (p == null) return;
+
+            p.Estado = isChecked ? ProyectoPasoEstados.Hecho : ProyectoPasoEstados.Pendiente;
+            p.FechaHecho = isChecked ? DateTime.Now : null;
+            p.UpdatedAt = DateTime.Now;
+
+            await Db.SaveChangesAsync();
+        }
+        catch { }
+
+        await LoadOperacionesAsync();
+    }
+
+    private async Task CambiarTecnico(ProyectoPaso paso, ChangeEventArgs e)
+    {
+        try
+        {
+            int? tecId = null;
+            if (int.TryParse(e.Value?.ToString(), out var id)) tecId = id;
+
+            var p = await Db.ProyectoPasos.FirstOrDefaultAsync(x => x.Id == paso.Id);
+            if (p == null) return;
+
+            p.TecnicoId = tecId;
+            p.UpdatedAt = DateTime.Now;
+            await Db.SaveChangesAsync();
+        }
+        catch { }
+
+        await LoadOperacionesAsync();
+    }
+
+    private async Task UploadEvidencia(ProyectoPaso paso, InputFileChangeEventArgs e)
+    {
+        if (_p == null) return;
+
+        try
+        {
+            var file = e.File;
+            if (file == null) return;
+
+            var safeName = $"paso_{paso.Id}_{DateTime.Now:yyyyMMddHHmmss}_{Guid.NewGuid():N}{Path.GetExtension(file.Name)}";
+            var relDir = $"/uploads/proyectos/{_p.Id}/evidencias";
+            var absDir = Path.Combine(Env.WebRootPath, "uploads", "proyectos", _p.Id.ToString(), "evidencias");
+            Directory.CreateDirectory(absDir);
+
+            var absPath = Path.Combine(absDir, safeName);
+            await using (var fs = File.Create(absPath))
+            {
+                await file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024).CopyToAsync(fs);
+            }
+
+            Db.ProyectoPasoEvidencias.Add(new ProyectoPasoEvidencia
+            {
+                ProyectoPasoId = paso.Id,
+                FilePath = $"{relDir}/{safeName}",
+                OriginalFileName = file.Name,
+                ContentType = file.ContentType,
+                SizeBytes = file.Size
+            });
+
+            await Db.SaveChangesAsync();
+
+            _okChecklist = true;
+            _msgChecklist = "Evidencia subida.";
+        }
+        catch (Exception ex)
+        {
+            _okChecklist = false;
+            _msgChecklist = "Error subiendo evidencia: " + ex.Message;
+        }
+
+        await LoadOperacionesAsync();
+    }
+
+    // ===== Compras =====
+    private async Task SaveOneDrive()
+    {
+        if (_p == null) return;
+
+        try
+        {
+            _p.OneDriveFolderUrl = _oneDriveUrl;
+            await Db.SaveChangesAsync();
+            _okCompras = true;
+            _msgCompras = "Liga de OneDrive guardada.";
+        }
+        catch (Exception ex)
+        {
+            _okCompras = false;
+            _msgCompras = "Error guardando OneDrive: " + ex.Message;
+        }
+    }
+
+    private async Task UploadCompra(InputFileChangeEventArgs e)
+    {
+        if (_p == null) return;
+
+        try
+        {
+            foreach (var file in e.GetMultipleFiles())
+            {
+                if (file == null) continue;
+
+                var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+                var isXml = ext == ".xml";
+                var isPdf = ext == ".pdf";
+
+                if (!isXml && !isPdf) continue;
+
+                var relDir = $"/uploads/proyectos/{_p.Id}/compras";
+                var absDir = Path.Combine(Env.WebRootPath, "uploads", "proyectos", _p.Id.ToString(), "compras");
+                Directory.CreateDirectory(absDir);
+
+                var safeName = $"compra_{DateTime.Now:yyyyMMddHHmmss}_{Guid.NewGuid():N}{ext}";
+                var absPath = Path.Combine(absDir, safeName);
+
+                await using (var fs = File.Create(absPath))
+                {
+                    await file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024).CopyToAsync(fs);
+                }
+
+                // Si es XML: crea CfdiDocumento y conceptos
+                // Si es XML: crea CfdiDocumento y conceptos
+                if (isXml)
+                {
+                    var storedPath = $"{relDir}/{safeName}";
+
+                    var parsed = await CfdiParser.ParseAsync(absPath);
+                    var doc = parsed.Doc;
+                    var conceptos = parsed.Conceptos;
+
+                    doc.ProyectoId = _p.Id;
+                    doc.FileNameXml = Path.GetFileName(file.Name);
+                    doc.StoredPathXml = storedPath;
+                    doc.UploadedAt = DateTime.Now;
+
+                    Db.CfdiDocumentos.Add(doc);
+                    await Db.SaveChangesAsync();
+
+                    foreach (var c in conceptos)
+                    {
+                        c.CfdiDocumentoId = doc.Id;
+                        c.ProyectoId = _p.Id;
+                        Db.CfdiConceptos.Add(c);
+                    }
+                    await Db.SaveChangesAsync();
+                }
+                else if (isPdf)
+                {
+                    var storedPath = $"{relDir}/{safeName}";
+                    Db.CfdiDocumentos.Add(new CfdiDocumento
+                    {
+                        ProyectoId = _p.Id,
+                        FileNameXml = string.Empty,
+                        StoredPathXml = string.Empty,
+                        FileNamePdf = file.Name,
+                        StoredPathPdf = storedPath,
+                        UploadedAt = DateTime.Now
+                    });
+                    await Db.SaveChangesAsync();
+                }
+
+            }
+
+            _okCompras = true;
+            _msgCompras = "Archivo(s) cargado(s).";
+        }
+        catch (Exception ex)
+        {
+            _okCompras = false;
+            _msgCompras = "Error subiendo compra: " + ex.Message;
+        }
+
+        await ReloadCompras();
+    }
+
+    private async Task ReloadCompras()
+    {
+        if (_p == null) return;
+        try
+        {
+            _cfdis = await Db.CfdiDocumentos
+                .Where(x => x.ProyectoId == _p.Id)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+        catch { }
     }
 }

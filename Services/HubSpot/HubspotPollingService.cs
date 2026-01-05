@@ -190,7 +190,7 @@ namespace AvitalERP.Services.Hubspot
                 Total = total,
 
                 Moneda = "MXN",
-                Estado = ProyectoEstado.Nuevo,
+                Estado = ProyectoEstados.Nuevo,
                 FechaCreacion = DateTime.Now,
                 JsonPayloadOriginal = payload
             };
@@ -208,3 +208,5 @@ namespace AvitalERP.Services.Hubspot
         }
     }
 }
+
+
