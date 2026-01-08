@@ -36,6 +36,13 @@ namespace AvitalERP.Data
             // ===== Tipos de proyecto + plantillas MVP =====
             try
             {
+                if (!await db.ProyectoCategorias.AnyAsync())
+                {
+                    var categorias = BuildDefaultCategorias();
+                    db.ProyectoCategorias.AddRange(categorias);
+                    await db.SaveChangesAsync();
+                }
+
                 if (!await db.ProyectoTipos.AnyAsync())
                 {
                     var tipos = BuildDefaultTipos();
@@ -64,6 +71,18 @@ namespace AvitalERP.Data
                 new ProyectoTipo { Codigo = "WIFI", Nombre = "Red WiFi" },
                 new ProyectoTipo { Codigo = "VENTA_EQUIPOS", Nombre = "Venta de equipos" },
                 new ProyectoTipo { Codigo = "VENTA_REFACCIONES", Nombre = "Venta de refacciones" }
+            };
+        }
+
+        private static List<ProyectoCategoria> BuildDefaultCategorias()
+        {
+            return new List<ProyectoCategoria>
+            {
+                new ProyectoCategoria { Nombre = "CCTV Wifi" },
+                new ProyectoCategoria { Nombre = "CCTV Cableado" },
+                new ProyectoCategoria { Nombre = "CCTV Movil" },
+                new ProyectoCategoria { Nombre = "Revision de Camaras" },
+                new ProyectoCategoria { Nombre = "Venta de Equipos" }
             };
         }
 

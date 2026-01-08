@@ -37,6 +37,35 @@ BEGIN
     );
 END
 
+
+-- =========================
+-- Categorías de Proyecto
+-- =========================
+IF OBJECT_ID('dbo.ProyectoCategorias', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ProyectoCategorias (
+        Id int IDENTITY(1,1) NOT NULL CONSTRAINT PK_ProyectoCategorias PRIMARY KEY,
+        Nombre nvarchar(120) NOT NULL,
+        Activo bit NOT NULL CONSTRAINT DF_ProyectoCategorias_Activo DEFAULT(1),
+        CreatedAt datetime2 NOT NULL CONSTRAINT DF_ProyectoCategorias_CreatedAt DEFAULT (SYSUTCDATETIME())
+    );
+    CREATE UNIQUE INDEX IX_ProyectoCategorias_Nombre ON dbo.ProyectoCategorias(Nombre);
+END
+
+IF OBJECT_ID('dbo.ProyectoCategoriasAsignadas', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ProyectoCategoriasAsignadas (
+        Id int IDENTITY(1,1) NOT NULL CONSTRAINT PK_ProyectoCategoriasAsignadas PRIMARY KEY,
+        ProyectoId int NOT NULL,
+        ProyectoCategoriaId int NOT NULL,
+        CreatedAt datetime2 NOT NULL CONSTRAINT DF_ProyectoCategoriasAsignadas_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT FK_ProyectoCategoriasAsignadas_Proyectos FOREIGN KEY (ProyectoId) REFERENCES dbo.Proyectos(Id) ON DELETE CASCADE,
+        CONSTRAINT FK_ProyectoCategoriasAsignadas_ProyectoCategorias FOREIGN KEY (ProyectoCategoriaId) REFERENCES dbo.ProyectoCategorias(Id)
+    );
+    CREATE INDEX IX_ProyectoCategoriasAsignadas_ProyectoId ON dbo.ProyectoCategoriasAsignadas(ProyectoId);
+    CREATE INDEX IX_ProyectoCategoriasAsignadas_ProyectoCategoriaId ON dbo.ProyectoCategoriasAsignadas(ProyectoCategoriaId);
+END
+
 -- =========================
 -- Tipos de Proyecto + Plantillas
 -- =========================

@@ -17,6 +17,8 @@ namespace AvitalERP.Data
 
         // Operación (MVP)
         public DbSet<Tecnico> Tecnicos => Set<Tecnico>();
+        public DbSet<ProyectoCategoria> ProyectoCategorias => Set<ProyectoCategoria>();
+        public DbSet<ProyectoCategoriaAsignada> ProyectoCategoriasAsignadas => Set<ProyectoCategoriaAsignada>();
         public DbSet<ProyectoTipo> ProyectoTipos => Set<ProyectoTipo>();
         public DbSet<ProyectoTipoPasoPlantilla> ProyectoTipoPasoPlantillas => Set<ProyectoTipoPasoPlantilla>();
         public DbSet<ProyectoTipoAsignado> ProyectoTiposAsignados => Set<ProyectoTipoAsignado>();
@@ -63,10 +65,22 @@ namespace AvitalERP.Data
                 .HasForeignKey(x => x.ProyectoId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            builder.Entity<ProyectoCategoriaAsignada>()
+                .HasOne(x => x.Proyecto)
+                .WithMany()
+                .HasForeignKey(x => x.ProyectoId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             builder.Entity<ProyectoTipoAsignado>()
                 .HasOne(x => x.ProyectoTipo)
                 .WithMany()
                 .HasForeignKey(x => x.ProyectoTipoId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<ProyectoCategoriaAsignada>()
+                .HasOne(x => x.ProyectoCategoria)
+                .WithMany()
+                .HasForeignKey(x => x.ProyectoCategoriaId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             builder.Entity<ProyectoPaso>()
@@ -97,6 +111,10 @@ namespace AvitalERP.Data
             // Unicidad simple
             builder.Entity<ProyectoTipo>()
                 .HasIndex(t => t.Codigo)
+                .IsUnique();
+
+            builder.Entity<ProyectoCategoria>()
+                .HasIndex(c => c.Nombre)
                 .IsUnique();
 
             builder.Entity<CfdiDocumento>()

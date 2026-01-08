@@ -145,6 +145,18 @@ else
                         <div class="fw-bold mb-2">Checklist (por tipo de proyecto)</div>
 
                         <div class="small text-muted mb-2">Puedes asignar uno o varios tipos. Luego generas el checklist automático.</div>
+                        <div class="fw-semibold mb-2">Categorías</div>
+                        <div class="small text-muted mb-2">Selecciona una o varias categorías para el proyecto.</div>
+                        <div class="mb-3">
+                            @foreach (var c in _categorias)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" checked="@_categoriasSeleccionadas.Contains(c.Id)" @onchange="(e) => ToggleCategoria(c.Id, e)" id="cat_@c.Id" />
+                                    <label class="form-check-label" for="cat_@c.Id">@c.Nombre</label>
+                                </div>
+                            }
+                        </div>
+                        <button class="btn btn-outline-primary mb-3" @onclick="SaveCategorias">Guardar categorías</button>
 
                         <div class="mb-2">
                             @foreach (var t in _tipos)
@@ -230,6 +242,12 @@ else
                         @if (!string.IsNullOrWhiteSpace(_msgChecklist))
                         {
                             <div class="alert @(_okChecklist ? "alert-success" : "alert-danger") mt-2">@_msgChecklist</div>
+                        }
+
+
+                        @if (!string.IsNullOrWhiteSpace(_msgCategorias))
+                        {
+                            <div class="alert @(_okCategorias ? "alert-success" : "alert-danger") mt-2">@_msgCategorias</div>
                         }
                     </div>
                 </div>
@@ -343,11 +361,14 @@ else
 
     // ===== Operación: tipos/pasos/tecnicos/evidencia =====
     private List<Tecnico> _tecnicos = new();
+    private List<ProyectoCategoria> _categorias = new();
+    private HashSet<int> _categoriasSeleccionadas = new();
     private List<ProyectoTipo> _tipos = new();
     private HashSet<int> _tiposSeleccionados = new();
     private List<ProyectoPaso> _pasos = new();
     private Dictionary<int, List<ProyectoPasoEvidencia>> _evidencias = new();
-
+    private bool _okCategorias;
+    private string _msgCategorias = "";
     private bool _okChecklist;
     private string _msgChecklist = "";
 
@@ -460,13 +481,20 @@ else
         try
         {
             _tecnicos = await Db.Tecnicos.Where(t => t.Activo).OrderBy(t => t.Nombre).ToListAsync();
+            _categorias = await Db.ProyectoCategorias.Where(c => c.Activo).OrderBy(c => c.Nombre).ToListAsync();
             _tipos = await Db.ProyectoTipos.Where(t => t.Activo).OrderBy(t => t.Nombre).ToListAsync();
+
+            var categoriasAsignadas = await Db.ProyectoCategoriasAsignadas
+              .Where(x => x.ProyectoId == _p.Id)
+              .Select(x => x.ProyectoCategoriaId)
+              .ToListAsync();
 
             var asignados = await Db.ProyectoTiposAsignados
                 .Where(x => x.ProyectoId == _p.Id)
                 .Select(x => x.ProyectoTipoId)
                 .ToListAsync();
 
+            _categoriasSeleccionadas = categoriasAsignadas.ToHashSet();
             _tiposSeleccionados = asignados.ToHashSet();
 
             _pasos = await Db.ProyectoPasos
@@ -488,6 +516,44 @@ else
         {
             // Si aún no existe el esquema, el bootstrap lo crea al arranque.
         }
+    }
+
+    private void ToggleCategoria(int categoriaId, ChangeEventArgs e)
+    {
+        var isChecked = e.Value is bool b && b;
+        if (isChecked) _categoriasSeleccionadas.Add(categoriaId);
+        else _categoriasSeleccionadas.Remove(categoriaId);
+    }
+
+    private async Task SaveCategorias()
+    {
+        if (_p == null) return;
+
+        try
+        {
+            var actuales = await Db.ProyectoCategoriasAsignadas.Where(x => x.ProyectoId == _p.Id).ToListAsync();
+            Db.ProyectoCategoriasAsignadas.RemoveRange(actuales);
+
+            foreach (var categoriaId in _categoriasSeleccionadas)
+            {
+                Db.ProyectoCategoriasAsignadas.Add(new ProyectoCategoriaAsignada
+                {
+                    ProyectoId = _p.Id,
+                    ProyectoCategoriaId = categoriaId
+                });
+            }
+
+            await Db.SaveChangesAsync();
+            _okCategorias = true;
+            _msgCategorias = "Categorías guardadas.";
+        }
+        catch (Exception ex)
+        {
+            _okCategorias = false;
+            _msgCategorias = "Error guardando categorías: " + ex.Message;
+        }
+
+        await LoadOperacionesAsync();
     }
 
     private void ToggleTipo(int tipoId, ChangeEventArgs e)
